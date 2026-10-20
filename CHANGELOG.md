@@ -1,0 +1,1755 @@
+# Changelog
+
+Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimine uygundur. Sürüm numaraları [`package.json`](package.json) ile uyumludur.
+
+**Sürüm takibi (kullanıcılar için):**
+
+| Kanal | Açıklama |
+|-------|----------|
+| [GitHub Releases](https://github.com/atezer/FMCP/releases) | Sürüm etiketleri ve (yayımlandığında) derlenmiş notlar |
+| [npm - @atezer/figma-mcp-bridge](https://www.npmjs.com/package/@atezer/figma-mcp-bridge) | Yayınlanan paket sürümü; `npm view @atezer/figma-mcp-bridge version` ile kontrol |
+| Bu dosya | Repoda her sürüm için özet değişiklik listesi |
+
+Bu changelog'a ekleme öncesi sürümlerin tam ayrıntıları için `git log` kullanılabilir.
+
+## [1.10.1] — 2026-10-08 — Repo düzeni, CI kontrolleri, bağımlılık güvenliği
+
+### Fixed
+
+- **`FIGMA_REST_TOKEN` ortam değişkeni artık okunuyor.** `/setup-rest-token` ve dokümanlar token'ı MCP ayarına bu değişkenle eklemeyi anlatıyordu, ama sunucu değişkeni hiç okumuyordu.
+- **Kurulum ve güncelleme betikleri.** `scripts/setup.sh`, `scripts/update.sh` ve `/update` olmayan `npm run build:local` komutunu çağırıyordu; artık `npm run build` kullanılıyor (dokümanlarda da).
+- **`install/` şablonları** var olmayan `fmcp-plugin-host.js` dosyasını ve kodun okumadığı `FMCP_PORT` değişkenini kullanıyordu. Artık `dist/local-plugin-only.js` ve `FIGMA_PLUGIN_BRIDGE_PORT` kullanılıyor.
+- **Kırık sembolik bağlantılar düzeltildi:** `.claude/commands` ve `.cursor/skills/f-mcp`.
+- **Autorun:** LaunchAgent `.plist` dosyası yer tutuculu bir şablon oldu; `install-autorun.sh` yolları kurulum sırasında dolduruyor. Launcher'daki sabit kişisel yol kaldırıldı.
+
+### Security
+
+- **Üretim bağımlılıklarında yüksek ve kritik seviyeli açık kalmadı.**
+  - `npm audit fix` uygulandı.
+  - `@modelcontextprotocol/sdk` ^1.32.1'e yükseltildi (GHSA-345p-7cg4-v4c7, GHSA-6qxp-vccf-f47h).
+  - `ws` 8.22.0'a güncellendi.
+
+### Changed
+
+- **`.mcp.json` artık repoda takip edilmiyor.** Yerine şablon olarak `.mcp.json.example` geldi; `.mcp.json` `.gitignore`'a eklendi. Kişisel yollar dokümanlardan da kaldırıldı.
+- **`scripts/sync-version.mjs`** (`npm run sync-version` / `check:versions`): 9 dosyadaki sürüm damgalarını ve araç, skill, komut sayılarını `package.json` ile eşitliyor. Düzeltilenler: `manifest.json` 1.1.2 / 33 araç, `.claude-plugin/plugin.json` 1.7.28 / 46 araç, 19 skill, 8 komut.
+- **Dokümanlar.**
+  - `docs/SETUP.md` ve `docs/ARCHITECTURE.md` güncel mimariyle yeniden yazıldı; eski mimari `docs/archived/` altına taşındı.
+  - `docs/TROUBLESHOOTING.md`'den eski tarayıcı ve CDP bölümleri çıkarıldı.
+  - `docs/TOOLS.md`'ye eksik 17 araç eklendi.
+  - Python köprüsü "deneysel" olarak işaretlendi.
+- **Araç adı doğrulayıcısı** artık `commands/`, `agents/`, `docs/`, `install/`, `README.md` ve `KURULUM.md` dosyalarını da tarıyor.
+- **CI.**
+  - Biçim ve lint kontrolü eklendi.
+  - Commit'li `dist/` ve embedded-skills dosyalarının kaynakla aynı olması kontrol ediliyor.
+  - Sürüm damgaları kontrol ediliyor.
+  - Üretim bağımlılıkları için gerçek audit kapısı var (`|| true` kaldırıldı).
+  - Testler Node 18, 20 ve 22 üzerinde çalışıyor.
+- **Tek seferlik biome biçimlendirmesi** yapıldı (`.git-blame-ignore-revs` dosyasında kayıtlı).
+- **Silinenler:** `.eslintrc.json`, `.prettierrc`, `tests/basic.test.ts`, `dist/cloudflare/`, kullanılmayan `tsx` bağımlılığı, `jest.config` içindeki ölü yollar, `tsconfig` içindeki `jsx` ayarı.
+
+## [1.10.0] — 2026-10-08 — Güvenlik ve doğru dosyaya yazma
+
+### Changed — davranış değişikliği
+
+- **Birden fazla dosya bağlıyken hedefsiz yazma artık hata veriyor.** Yazma yapan araçlar `fileKey` (veya `figmaUrl`) belirtilmezse `TARGET_REQUIRED` hatası döndürüyor; hata mesajında bağlı dosyaların listesi var. Daha önce bu çağrılar en son bağlanan dosyaya gidiyordu.
+  - Kapsam: variable CRUD, `create_*`, `instantiate_component`, prototip araçları ve kodu belgeyi değiştiren `figma_execute` çağrıları.
+  - Tek dosya bağlıyken davranış aynı. Okuma araçları en son bağlanan dosyaya düşmeye devam ediyor.
+  - Kapatmak için: `FMCP_REQUIRE_TARGET=0`.
+- **Bilinmeyen bir `fileKey` başka dosyaya yönlendirilmiyor.** Artık hata veriyor.
+- Routing almayan 28 aracın tamamına `fileKey` / `figmaUrl` parametreleri eklendi.
+
+### Security
+
+- **Bridge yalnızca Figma plugin'ini kabul ediyor.**
+  - WebSocket origin kontrolü eklendi. Kabul edilenler: `null` (Figma plugin iframe'i, canlı ölçüldü), origin'siz Node istemcileri ve `*.figma.com`. Web sayfaları reddediliyor.
+  - Kaçış ayarı: `FMCP_BRIDGE_ALLOW_ANY_ORIGIN=1`.
+- **`/shutdown` tarayıcıdan gelen istekleri reddediyor** (403). CORS `*` başlıkları kaldırıldı.
+- **Bir isteğe yalnızca isteğin gönderildiği istemci yanıt verebiliyor.** `setToken` ve `clearToken` yalnızca el sıkışmayı tamamlamış istemciden kabul ediliyor.
+- **`figma_rest_api` token'ı yalnızca `https://api.figma.com` adresine gönderiyor.** POST, PUT ve DELETE ağ hatasından sonra yeniden denenmiyor.
+- `FIGMA_BRIDGE_HOST=0.0.0.0` kullanıldığında uyarı veriliyor.
+
+### Fixed
+
+- **`figma_execute` çift çalışmıyor.** Kod plugin'e ulaştıktan sonra bağlantı koparsa artık yeniden gönderilmiyor. Bunun yerine `EXECUTION_STATE_UNKNOWN` hatası ve "önce oku, sonra tekrar dene" ipucu dönüyor. Zaman aşımı ipucu da aynı uyarıyı içeriyor, ve yanlış yazılan üst sınır düzeltildi (30000ms).
+- **Sahipsiz süreçler kalmıyor.**
+  - MCP host'u kapanınca (stdin veya transport kapanınca) süreç çıkıyor.
+  - "Bayat bridge" kararı süreç ömrüne göre değil, istemcisiz geçen süreye göre veriliyor (`/status` içinde `idleSeconds`).
+  - `/shutdown` alan bridge zombi kalmıyor, başka bir porta taşınıyor.
+- **`restart()` yarış durumu giderildi.** Eski deneme zincirleri ve zamanlayıcılar iptal ediliyor. Çalışan bir sunucunun üzerine yazılmıyor. EADDRINUSE dışı bind hataları 30 sn beklemeden hemen bildiriliyor.
+- **Kapanışta audit log kaybolmuyor.** Önce bridge durduruluyor, sonra log boşaltılıp çıkılıyor.
+
+### Added
+
+- `src/core/mutation-detect.ts`, `src/core/rest-url.ts` ve 36 yeni test (186/186).
+- `fmcp-project-rules` skill'ine "Hedef Dosya Kuralı" eklendi.
+
+## [1.9.16] — 2026-10-08 — Sessizce bozuk özelliklerin düzeltilmesi
+
+### Fixed
+
+- **Boyut koruması (response guard) artık `{}` döndürmüyor.** 80 KB'ı aşan ve düğüm ağacı içermeyen yanıtlarda budama kök nesneye uygulanıyor ve bütün alanları siliyordu. Etkilenen araçlar: `figma_extract_contract`, `figma_get_component_image`, `figma_get_component_for_development`, `figma_validate_screen`, `figma_scan_ds_compliance`, `figma_clone_screen_to_device`, `figma_create_mini_ds`, `figma_get_prototype_connections`. Artık:
+  - Budama yalnızca gerçek düğüm ağaçlarına uygulanıyor.
+  - Diğer yanıtlar adım adım sıkılaşan genel kırpmadan geçiyor.
+  - Kırpma olduğunda yanıtta her zaman bir `_truncated` işareti kalıyor.
+- **Önbellek artık guard'lanmış veriyi saklıyor.** 60 sn içindeki ikinci `figma_get_file_data` / `figma_get_design_context` çağrısı boyut sınırını atlayıp ağacın tamamını döndürüyordu. `debug=true` çağrıları önbelleğe yazmıyor.
+- **`figma_get_console_logs` ve `figma_watch_console` her zaman boş dönüyordu.** Veri iki kez açılıyordu. Connector artık iki yanıt biçimini de kabul ediyor; eski ve yeni plugin UI'larıyla uyumlu. `watch_console` artık çağrıdan önceki eski logları tekrar göndermiyor.
+- **Plugin UI `_postExecuteScan` ve `fileContext` alanlarını iletmiyordu.** v1.9.6'daki post-execute tarama hiç çalışmıyordu.
+  - Tarama varsayılan olarak **uyarı modunda** etkin: yanıta `_POST_EXECUTE_SCAN_WARNING` + `_postExecuteViolations` ekleniyor, sonraki `figma_execute` çağrıları engellenmiyor.
+  - Eski engelleyici davranış için: `FMCP_POST_SCAN_MODE=block`.
+- **`figma_scan_ds_compliance` örnek döndürmüyordu.** UI `detailed` parametresini düşürüyordu.
+- **`depth=0` isteği UI'da 1'e (düğümde 2'ye) çevriliyordu.**
+- **`figma_create_text`, `figma_create_rectangle`, `figma_create_group` ve `figma_create_mini_ds` önbelleği temizlemiyordu.**
+- **`figma_check_design_parity`:** eksik renk kanalı `NaN` üretiyordu; alias değerleri `"[object Object]"` olarak karşılaştırılıyordu. Alias'lar artık `alias:<id>` ile karşılaştırılıyor.
+- **`figma_get_token_browser`:** summary modu artık yalnızca ilk mod değerini döndürüyor.
+- **Blocking tracker:** `"1:2"` düğüm kimliği `"11:23"` ve `"I1:2;3:4"` ile yanlışlıkla eşleşiyordu.
+- **Bootstrap yanıtı** sabit `1.9.8` yerine gerçek sürümü bildiriyor.
+- **`fillColor`** (`create_frame` / `create_text` / `create_rectangle`) artık doğrulanıyor: `#rgb` desteği eklendi, geçersiz değer koda gömülmek yerine hata veriyor.
+- **Post-execute ihlal listesi** en fazla 50 kayıtla sınırlandı.
+
+### Added
+
+- `src/core/color-utils.ts` (test edilebilir renk yardımcıları) ve 18 regresyon testi (`tests/core/v1916-regressions.test.ts`).
+
+## [1.9.15] — 2026-10-06 — DS Change Tracker: DS değişiklik takibi
+
+### Added — `ds-change-tracker` skill'i + `/track-ds-changes` komutu
+
+- **`ds-change-tracker` skill'i** (29. skill): Figma DS dosyalarındaki bileşen/varyant/token/ikon değişikliklerini tespit eder, "eski → yeni" raporlar, onaylı iş taslağı (Jira vb.) önerir. İki yöntem: snapshot karşılaştırması (token + bileşen; snapshot'lar kullanıcı-yerel `~/.claude/data/fcm-ds/<fileKey>/change-snapshots/`, repoya yazılmaz) ve REST sürüm geçmişi (yalnızca bileşen/yapı — Figma REST variable değerlerini sürüm bazında vermediği için geçmişe dönük token farkı yok; skill bunu açıkça belirtir). Salt okunur. **Deneysel:** REST sürüm geçmişi yolu henüz canlı bir dosyada uçtan uca doğrulanmadı.
+- **`/track-ds-changes` komutu** ve **[docs/DS_CHANGE_TRACKING.md](docs/DS_CHANGE_TRACKING.md)** zamanlanmış görev rehberi.
+- `fmcp-intent-router` routing tablosu ve `SKILL_INDEX` güncellendi.
+
+## [1.9.14] — 2026-07-31 — Contract Extractor: Component Set → design contract JSON spec
+
+### Added — `figma_extract_contract` aracı + `extract-contract` skill'i
+
+- **`figma_extract_contract` aracı** (63. tool): bir COMPONENT_SET'i (veya içindeki COMPONENT/INSTANCE'ı, ya da aktif seçimi) 3 aşamada okuyup tam design contract JSON spec üretir — props (componentPropertyDefinitions: boolean-like variant → `is` prefix, "State/Durum/Interaction" değerleri → `states` normalizasyonu), anatomy (default variant ağacı, boundVariables → CSS property eşleme, `{Collection.Path}` token referansları, semantic part naming + dedupe), variantOverrides (her variant değerinin default variant'a karşı token diff'i; kaldırılanlar `"(none)"`), resolvedTokens (tüm mode'larda alias-chain çözümü, döngü korumalı; koleksiyonlar arası alias'ta mode ADA göre eşlenir, bulunamazsa defaultModeId), baseSpecs (ham ölçüler; hug/fixed eşlemesi layoutMode eksenine göre) ve a11y kontrast çiftleri (WCAG 2.1, mode bazlı AA/AAA; alpha'lı renkler alpha-blend edilir — opak varsayımı yapılmaz). Orphan prop tespiti + `report` özeti (`{kebab-name}-spec.json` öneri adı, "draft" durumu). Salt okunur; REST token gerekmez; **plugin güncellemesi gerektirmez** (mevcut EXECUTE_CODE altyapısını kullanır). Aşama 2/3 hatasında kısmi çıktı üretilir ve `report.notes`'a ⚠ uyarı düşülür — sessiz eksik veri yok.
+- **`src/core/contract-extractor.ts`**: plugin script üreticileri (structure / overrides / tokens — HAM veri döndürür) + saf TS assembly katmanı. 43 birim testi: isimlendirme, WCAG kontrast (tamamen sentetik palet), props normalizasyonu, override formatı, a11y çiftleri, VERTICAL layout ekseni, küçük harfli boolean-like variant, tekil COMPONENT akışı, a11y mode-fallback, parseVariantCombo kenar durumları.
+- **`extract-contract` skill'i** (28. skill): birincil yol `figma_extract_contract` tek çağrısı; eski sunucular için 3 aşamalı `figma_execute` fallback'i + hata yönetimi tablosu.
+- Canlı doğrulama: 3 aşama gerçek bir 72-variant'lık Component Set üzerinde uçtan uca çalıştırıldı (17ms / 127ms / 22ms).
+
+### Fixed — release-öncesi denetim düzeltmeleri (multi-agent audit)
+
+- `buildBaseSpecs`: VERTICAL layout'ta primary axis = height olduğundan hug/fixed eşlemesi eksene göre seçilir (dikey bileşenlerde width/height ters raporlanıyordu).
+- Boolean-like VARIANT binding `values`'ı sabit `"True"/"False"` yerine gerçek seçenek string'lerinden türetilir (küçük harfli set'lerde `setProperties` geri-yazması kırılmasın).
+- Token alias zinciri guard'ı tükenirse contract'a `VARIABLE_ALIAS` objesi sızdırılmaz (null'a düşülür); a11y stil grubu seçiminde state-benzeri gruplar atlanır ve ada göre öncelik uygulanır; overrides script'i structure ile aynı depth/budget (8/400), aynı boundVariables anahtar listesi ve aynı opacity'li hex formatını kullanır (parite); TEXT lineHeight birimi (`PIXELS`/`PERCENT`) korunur.
+
+### Docs
+
+- SKILL_INDEX'e eksik `fmcp-intent-router` tablo satırı eklendi; TOOLS_FULL_LIST bayat "Toplam: 48 araç" → 63 düzeltildi; README rozet + vitrin + footer sürüm yüzeyleri v1.9.14'e alındı (63 araç / 28 skill).
+
+## [1.9.13] — 2026-07-11 — Sıfır-kurulum DS oto-uyumlanma + atıl kod temizliği
+
+### Added — Zero-Setup DS Auto-Onboard (v3.5)
+
+- **Adım -2 AUTO-ONBOARD** (`fmcp-screen-orchestrator`): kullanıcı hiçbir kurulum yapmadan "tasarım sistemimle X yap" diyebilir. Registry boşsa agent DS'i kendisi keşfeder: bağlı library dosyaları → subscribe edilmiş variable library'leri (`figma_get_library_variables`, file key gerekmez) → instance taraması (`figma_search_assets`) → opsiyonel REST zenginleştirme. Bulgular kullanıcıya özel `.claude/design-systems/registry.local.md`'ye (gitignore'lu) kalıcılaştırılır; keşif tekrarlanmaz. Tüm sinyaller boşsa en fazla BİR kez kütüphane linki sorulur ve kaydedilir.
+- DS Library Registry artık iki kaynaklı: `registry.local.md` (birincil, kullanıcıya özel) → repo şablon tablosu. `/ds-add` da `registry.local.md`'yi günceller; `figma-canvas-ops` 0a adımı yeni okuma sırasına bağlandı; README'ye "Sıfır kurulum" bölümü eklendi.
+
+### Removed/Fixed — Atıl kod temizliği (davranış değişikliği YOK)
+
+Sağlık taramasında (%100 doğrulanmış, salt üretimden çağrılmayan) ölü kod kaldırıldı; canlı davranış değişmedi. Doğrulama: 89/89 test, `tsc --noEmit` temiz, `validate:fmcp-skills` exit 0, temiz dist üzerinde gerçek MCP el sıkışması (initialize + tools/list 62 tool + tools/call) ve HTTP köprü smoke testi.
+
+### Removed — ölü kod (~850 satır)
+
+- **`src/core/instructions.ts`** (287 satır) — hiçbir yerden import edilmiyordu; içeriği v3.2'de kaldırılan "CACHE-FIRST" akışını anlatıyordu ve npm paketine gidiyordu.
+- **`src/core/fmcp-cache-reader.ts`** (372 satır) + testi — v3.3 "cache tools removed" kalıntısı; tek referansı kendi testiydi.
+- **`bootstrap-injector.injectNextStepObj` + `NextStep` tipi** — üretimden hiç çağrılmıyordu; üç case'i de kaldırılmış cache tool'larına aitti. `reference_docs` alanı da kaldırıldı (var olmayan MCP resource/prompt'ları duyuruyordu).
+- **`plugin-bridge-server`: `requestShutdownAndRetry` + `tryListenFixed`** (~95 satır) — yalnızca birbirini çağıran `@deprecated` ada; canlı başlangıç `tryListenWithAutoIncrement` kullanıyor.
+- **`audit-log.auditCache`**, kullanılmayan importlar (`calculateSizeKB`, `PluginScreenshotPayload`, `PluginExecuteResult`, `DesignSystemSummary`), ui.html'de `_cn` ölü dalı ve `__figmaComponentData` ölü global'i.
+
+### Fixed — dokümantasyon/üretici tutarlılığı
+
+- **Skill'lerdeki kaldırılmış tool referansları** (6 dosya): `figma_resolve_active_ds`, `figma_get_library_components`, `figma_get_library_tokens` akışları canlı karşılıklarıyla (`figma_enumerate_published_components` / `figma_enumerate_library_components` / `figma_get_library_variables`) yeniden yazıldı; response-alan iddiaları (`requiredLibraries`, `componentSetKeys`, per-item `sourceLibrary`) gerçek sözleşmeye hizalandı. `validate:fmcp-skills` artık temiz geçiyor.
+- **`generate-embedded-skills` deterministik yapıldı:** gömülü timestamp ve ölü `EMBEDDED_SKILLS_VERSION`/`GENERATED_AT` exportları kaldırıldı — yeniden üretim artık sahte diff üretmiyor.
+- `LEGACY_DEFAULTS` üzerindeki bayat "v1.9.0'da kaldırılacak" yorumu düzeltildi.
+
+## [1.9.12] — 2026-07-10 — Kapsamlı test düzeltmeleri + DS-agnostic temizlik
+
+### Fixed — Plugin (f-mcp-plugin)
+
+- **Eksik result case'leri:** `CLONE_SCREEN_TO_DEVICE_RESULT`, `VALIDATE_SCREEN_RESULT`, `CREATE_MINI_DS_RESULT` ui.html switch'inde yoktu — bu komutlar canvas'ta başarılı olsa bile caller'a timeout dönüyordu (retry → duplicate riski). Payload'ı top-level alanlarıyla eksiksiz kopyalayan handler eklendi.
+- **`MAX_PROPERTIES` ReferenceError:** yalnız `extractComponentSetData` içinde tanımlıydı; sayfada standalone COMPONENT varsa component envanteri komple çöküyordu (`figma_search_components` "No component data" kök nedeni). Ortak scope'a taşındı.
+- **`createMiniDs` yönlendirmesi:** yalnız extra-port handler'ındaydı; ana bağlantıdan "Unknown method" dönüyordu.
+- **FILE_IDENTITY raporlama:** `figma.fileKey` geç yüklenen dosyalarda kimlik hiç raporlanmıyordu → artan aralıklı retry (1s→60s) + kimlik geç gelirse açık WS bağlantılarına `ready` yeniden gönderimi.
+- **WS yaşam döngüsü:** ana `onclose`'ta stale-socket guard'ı başa alındı; extra-port'ta doğru anahtarla silme + yalnız kendi kaydını silme + orphan keepalive'ın kendini durdurması + ana hedef porta çifte bağlanma guard'ı; backoff tavanında port listesi tam taramaya genişletiliyor (sunucu port değiştirirse ölü-port döngüsü bitti).
+- **Dynamic-page:** üç noktada senkron `mainComponent` → async-first (`getMainComponentAsync`); instance keşfi sessiz boş dönmüyor, `setProperties` sonrası sahte `success:false` bitti.
+- **Screenshot `summary`/`regions` modları:** payload UI'da düşürülüyordu — artık `mode`/`summary`/`regions`/`rootSummary` alanları geçiriliyor.
+- **REST token:** silinen/değiştirilen token'ın reconnect'te `__pendingRestoreToken` üzerinden geri gelmesi engellendi.
+- **Küçükler:** `rgbaToHex` NaN guard'ı, execute timeout timer temizliği (başarı+hata yolları), `clientName` innerHTML escape, bağlantı yaşam döngüsünde port label güncellemesi.
+
+### Fixed — Server (src)
+
+- **`figma_search_components` limit semantiği:** `limit` tarama sınırı olarak uygulanıyordu ("ilk N component içinde ara" → boş sonuç). Artık query varken tarama sınırsız, `limit` filtre SONRASI uygulanır; `id` alanı eşlemesi düzeltildi (plugin `nodeId` gönderir).
+- **`figma_get_variables` summary:** 1000+ variable'lı dosyalarda `valuesByMode` ile 285KB dönüyordu — summary artık gerçek özet (300 kayıt tavanı + `variableCount` + `_truncated` yönlendirmesi).
+- **fileKey yönlendirmesi:** `figma_get_console_logs`, `figma_get_component_image`, `figma_get_token_browser`, `figma_get_prototype_connections` araçlarına `fileKey`/`figmaUrl` parametreleri eklendi — çoklu dosyada varsayılan istemciye düşüp yanıltıcı hata üretme sorunu kapandı.
+- **Discovery budget — `// BULK_READ` muafiyeti:** manifest/envanter gibi meşru toplu okuma işleri artık keşif bütçesine sayılmıyor (kod içinde `// BULK_READ` işareti).
+
+### Changed — DS-agnostic temizlik
+
+- Gerçek design-system file key'leri ve şirket-özel kütüphane verileri repodan çıkarıldı: DS Library Registry artık **şablon** (placeholder key'ler), araç açıklamalarındaki örnekler genelleştirildi.
+- Kullanıcıya özel DS dokümanları (`.claude/design-systems/<ds>/`) ve oturum-durumu dosyaları (`active-ds.md`, `last-intent.md`, `intent-history.md`, `.claude/plans/`) untrack edildi ve gitignore'a alındı — framework bunları gerektiğinde yerelde üretir.
+- **Yeni: `ai-ready/`** — Figma tasarımlarının AI araçlarınca doğru okunmasını denetleyen sistemin geliştirici tarafı: `rules/` (CLAUDE.md/.cursorrules kuralları), `cli/audit.mjs` (REST+PAT, bağımlılıksız, CI gate), `manifests/` (component-key manifest köprüsü — gerçek manifest'ler gitignore'lu, örnek şablon dahil).
+
+## v3.2 — Live-First Discovery (tarihçe; v1.9.12 kapsamında yayınlandı)
+
+### Fundamental shift
+
+**Problem:** Cache (component key'leri + token'lar) bakım külfeti yaratıyordu. Ana-DS gibi aktif library'ler sürekli güncellendiği için 27 component'lik Pareto subset hızla eksik/yanlış hale geliyor: stale key'ler, missing component'ler (Input, Select, Checkbox vb.), yanlış `sourceLibrary`, yanlış `kind`. Kullanıcı her sync gerektirmeyen canlı yaklaşım istedi.
+
+**Çözüm:** Live enumeration birincil yol. Agent library file'ları plugin'de açık olduğunda her seferinde Figma'dan taze component listesi alır.
+
+### Added
+
+- `figma_enumerate_library_components(libraryName|libraryFileKey)` — connected library file'da `figma.root.findAll(COMPONENT|COMPONENT_SET)` ile live scan. Her item: `{name, key, kind, props, pageName}`. Multi-library DS (Ana-DS + Ana-DS Mobil + ikon kütüphanesi) için her biri için ayrı call.
+
+### Changed
+
+- **Orchestrator Adım -1** komple yeniden yazıldı: live-first discovery. Sıra: `figma_list_connected_files` → `figma_enumerate_library_components` (her library) → `figma_get_library_variables` (teamLibrary live) → üretim.
+- Cache tool'ları (`figma_resolve_active_ds`, `figma_get_library_components`, `figma_get_library_tokens`) `[DEPRECATED v3.2+]` — backward compat için kalıyor ama kullanımı önerilmiyor.
+
+### Migration
+
+Kullanıcı tarafında:
+- `~/.claude/data/fcm-ds/<file-key>/components.md` ve `tokens.md` dosyaları artık gerekli değil — isterseniz silebilirsiniz.
+- `active.md` minimal kalabilir (sadece library ismi hatırlatma) veya kaldırılabilir; agent artık user prompt'undan library adını çıkarıp `figma_list_connected_files`'te arar.
+
+Agent davranışı:
+- Kullanıcı "Ana-DS ile X yap" dediğinde agent önce plugin'de Ana-DS library file'larının bağlı olduğunu doğrular; bağlı değilse kullanıcıdan library file'ları açmasını ister.
+
+## v3.1 — Server Cache Resolver (tarihçe; buradaki 3 cache tool'u v3.3'te KALDIRILDI — bkz. 1.9.13)
+
+### Added
+
+3 yeni MCP tool — DS cache okuma artık server tarafında. Claude'un filesystem'a (özellikle `~/.claude/data/fcm-ds/`) erişimi GEREKMİYOR; cache key'leri tek call'da hazır geliyor.
+
+- `figma_resolve_active_ds()` — active library + cache freshness (`fresh`/`stale`/`missing`)
+- `figma_get_library_components(libraryName, filter?)` — componentKey listesi (cache hit'te 0 keşif)
+- `figma_get_library_tokens(libraryName, filter?)` — variableKey listesi (`spacing`/`radius`/`color`/`typography` type)
+- `audit-log`: `cache_hit`, `cache_miss`, `cache_stale` event tipleri
+
+### Changed (skill cache-first refactor)
+
+- **fmcp-screen-orchestrator:** Yeni Adım -1 — Cache Pre-Flight (BLOCKING). Cache hit'te tüm discovery / sayfa scan / kullanıcı sorusu YASAK.
+- **generate-figma-screen Step 3a:** "Mevcut ekranları incele + `findAll(INSTANCE)`" anti-pattern'i silindi. Yeni primer: `figma_get_library_components`. Cache miss'te Rule 24.1+ fallback chain.
+- **generate-figma-screen Step 3.1 / 3d:** Cache hit'te tamamen skip notları.
+- **fmcp-intent-router:** Discovery öncelik listesinin başına Rule 24.0 (server cache) eklendi.
+- **fmcp-screen-recipes:** Rule 24 zincirine üstten 24.0 eklendi (mevcut 24.1-24.4 semantiği korundu — 11 dosyadaki referanslar bozulmasın diye).
+- **figma-canvas-ops:** Section 0 başına FMCP Cache Resolve bloğu — server tools tek doğru yol.
+
+### Token Budget — Hedef Metrik
+
+Cache hit + ödeme/login ekranı: **≤6 tool call**, 0 timeout, 0 sayfa scan, 0 manuel URL sorusu.
+
+| # | Tool | Amaç |
+|---|---|---|
+| 1 | `figma_get_status` | Plugin bağlantısı |
+| 2 | `figma_resolve_active_ds` | Library + cache status |
+| 3 | `figma_get_library_components` | componentKey listesi |
+| 4 | `figma_get_library_tokens` | variableKey listesi |
+| 5 | `figma_execute` | Skeleton + sections (1-2 call) |
+| 6 | `figma_validate_screen` | Skor ≥80 |
+
+### Fixed
+
+- "fmcp-filesystem MCP `~/.claude/data/fcm-ds/` izni yok → Claude cache'i göremez → Plugin/REST discovery → timeout + sayfa scan" kısır döngüsü kırıldı. Server tarafı okuma yapıyor; filesystem izni gerekmiyor.
+
+## [1.9.11] - 2026-04-19
+
+### Fixed — matchLayers DirectionalTransition için ZORUNLU (canlı test bulgusu)
+
+v1.9.10 düzeltmesinden sonra 2. canlı test (<TEST_FILE_KEY> dosyasında 8 bağlantılı Ürün Detayı akışı) yeni bir bug tespit etti:
+
+**BUG:** Figma schema'sı DirectionalTransition (SLIDE_IN/MOVE_IN/PUSH/SLIDE_OUT/MOVE_OUT) için `matchLayers` key'ini **zorunlu** istiyor. Değer `true` veya `false` olabilir ama key'in mutlaka olması gerekiyor.
+
+**v1.9.10'daki hatalı davranış:** `matchLayers` default `false` iken key HİÇ enjekte edilmiyordu (`${matchLayers ? ... : ""}` guard). Sonuç: `SLIDE_IN` ile her ilk call `Unrecognized key(s) in object` hatası verdi, kullanıcı manuel `matchLayers: true` göndermek zorunda kaldı.
+
+**v1.9.11 düzeltme:** DirectionalTransition için `matchLayers` her zaman enjekte ediliyor — değeri user param'dan geliyor (default false). SMART_ANIMATE ve diğer SimpleTransition'larda hâlâ enjekte EDİLMİYOR (Figma schema onlara reddediyor).
+
+```diff
+- ${matchLayers ? `transitionObj.matchLayers = true;` : ""}
++ transitionObj.matchLayers = ${matchLayers};   // always inject for DirectionalTransition
+```
+
+### Documented
+- `action=BACK` parametresi: Figma `transition` param'ını IGNORE eder — önceki NAVIGATE'in yönünü otomatik ters uygular. Audit raporunda `transition: null` görünmesi normal davranış. Description'a not eklendi.
+
+### Canlı test sonucu (v1.9.10 → v1.9.11)
+- ✅ 8/8 bağlantı + 1 flow starting point — Ürün Detayı Akışı tam kuruldu
+- ✅ OVERLAY preflight hatasız geçti (Action Sheet zaten overlay olarak işaretli)
+- ✅ BACK geçişleri Present modda doğru animasyonla çalışıyor
+- ⚠️ Tek pürüz: ilk SLIDE_IN'de schema hatası (v1.9.11 ile çözüldü)
+
+## [1.9.10] - 2026-04-19
+
+### Fixed — Canlı test bulguları (v1.9.9 prototype tools bug fix)
+
+Figma'da gerçek ekranlar üzerinde test edildi (https://www.figma.com/design/<TEST_FILE_KEY>). 3 bug tespit edildi ve düzeltildi:
+
+**BUG 1: `matchLayers` yanlış transition tipine enjekte ediliyordu**
+- Figma schema: `matchLayers` **DirectionalTransition**'a (SLIDE_IN/MOVE_IN/PUSH/...) kabul edilir; **SMART_ANIMATE**'e kabul EDİLMEZ (SimpleTransition).
+- Eski kod: `if (isSmart) transitionObj.matchLayers = ${matchLayers}` → Figma `Unrecognized key(s) in object: 'matchLayers' at [0].actions[0].transition` ile reddediyordu.
+- Yeni kod: matchLayers sadece DirectionalTransition + kullanıcı `true` verirse enjekte edilir. SMART_ANIMATE implicit olarak katmanları eşleştirir, explicit param gerekmez.
+- `figma_create_interaction`: `matchLayers` param'ı tamamen kaldırıldı (SMART_ANIMATE variant geçişleri zaten layer matching yapar).
+
+**BUG 2: Overlay ayarları Plugin API'de yazılamaz**
+- `FrameNode.overlayPositionType`, `overlayBackgroundInteraction`, `overlayBackground` — hepsi Plugin API'de **readonly** (`"no setter for property"` hatası).
+- `figma_create_prototype_connection` Zod schema'sından `overlayCloseOnClickOutside`, `overlayBackgroundColor`, `overlayBackgroundOpacity` param'ları KALDIRILDI (yazmaları imkansız — gerçek kullanımda yanılttırıyordu).
+- Kullanıcı bu ayarları Figma UI'ında manuel yapmalı: Prototype tab → Advanced → Overlay.
+
+**BUG 3: Preflight overlay check eksikti**
+- `action=OVERLAY` seçilip destination frame overlay olarak işaretlenmemişse Figma generic `"Reaction at index 0 was invalid"` veriyordu.
+- Yeni kod: Preflight kontrol — `dst.overlayPositionType === "NONE"` ise typed error:
+  ```
+  OVERLAY_FRAME_NOT_CONFIGURED: destinationNodeId=1:23 Figma'da overlay olarak isaretli degil.
+  Cozum: frame'i sec -> Prototype tab -> Advanced -> 'Overlay' ac -> Position sec.
+  Plugin API bu ayari yazamiyor (readonly).
+  ```
+
+### Canlı test sonuçları (v1.9.9 → v1.9.10 öncesi)
+- ✅ 5/6 bağlantı başarıyla kuruldu (Tab navigasyon, Smart Animate geçişleri, Back, Flow starting point)
+- ❌ 1/6 başarısız (overlay reaction — v1.9.10 ile düzeltildi)
+- İlk canlı kullanıcı testi (`<TEST_FILE_KEY>` dosyası): Ürün Detayı akışı 5 reaction ile kuruldu, present modda çalıştı.
+
+## [1.9.9] - 2026-04-19
+
+### Added — Figma Prototype Connections + Animations (FUTURE.md P0 kapatıldı)
+
+**5 yeni tool** (`src/local-plugin-only.ts`):
+
+- **`figma_create_prototype_connection`** — İki node arası reaction. Trigger (ON_CLICK/ON_HOVER/ON_PRESS/ON_DRAG/AFTER_TIMEOUT/MOUSE_UP/MOUSE_DOWN/MOUSE_ENTER/MOUSE_LEAVE/ON_KEY_DOWN — 10 tip), Action (NAVIGATE/OVERLAY/SWAP/BACK/CLOSE/SCROLL_TO/CHANGE_TO/URL — 8 tip), Transition type (DISSOLVE/SMART_ANIMATE/SCROLL_ANIMATE/MOVE_IN/MOVE_OUT/PUSH/SLIDE_IN/SLIDE_OUT + INSTANT — 9 tip) + direction (LEFT/RIGHT/TOP/BOTTOM) + matchLayers + easing (11 tip) + duration + preserveScrollPosition + overlayRelativePosition + overlayCloseOnClickOutside + overlayBackgroundColor + overlayBackgroundOpacity. ON_KEY_DOWN için `keyCodes` + `device` (KEYBOARD/XBOX_ONE/PS4/SWITCH_PRO/UNKNOWN_CONTROLLER). MOUSE_* için `mouseDelay` (saniye). 2024+ API: `setReactionsAsync` kullanır (direct assignment readonly).
+- **`figma_get_prototype_connections`** — Read-only audit. Node subtree veya pageScope taraması. `getReactionsAsync` fallback + `node.reactions` getter. `toolResult` envelope ile response size guard (büyük sayfalarda truncation).
+- **`figma_set_flow_starting_point`** — `page.setFlowStartingPointsAsync` (varsa) veya direct assignment. FRAME-only validation. `description` pluginData'ya kaydedilir (Figma FlowStartingPoint shape `{nodeId,name}` only).
+- **`figma_create_interaction`** — Variant state-change (CHANGE_TO navigation). `getMainComponentAsync` ile deprecation-safe main component erişimi. COMPONENT_SET kapsamında variant resolve (id veya name ile). v1: INSTANT/DISSOLVE/SMART_ANIMATE.
+- **`figma_set_scroll_behavior`** — FrameNode.overflowDirection (NONE/HORIZONTAL/VERTICAL/BOTH) + SceneNode.scrollBehavior (SCROLLS/FIXED/STICKY_SCROLLS) ayarı.
+
+**Yeni skill:** [`skills/figma-prototype-flow/SKILL.md`](skills/figma-prototype-flow/SKILL.md) — screen envanteri → navigasyon haritası (TR+EN heuristic, 11 button text pattern) → reactions (FUTURE.md animasyon tablosu uygulaması) → flow starting point → validate → dokümantasyon. **Otonom-first**: kritik dallanmalarda sorar (50+ bağlantı, heuristic eşleşmeyen, orphan/circular), rutinde sessiz yürütür. Chunking kuralı: ≤20 tek seferde, 21-50 chunk'lı, >50 kullanıcı onayı, >100 hard stop.
+
+**Skill güncellemeleri:**
+- `generate-figma-screen` → Step 6.7: 2+ frame üretildiyse prototip bağlantı önerisi
+- `ai-handoff-export` → Step 4.5: Prototip akış diyagramı (Mermaid `graph TD`) + manifest.prototypeFlow
+- `figma-a11y-audit` → Section 7d.1: Prototip odak sırası vs a11y focus sırası çapraz kontrolü
+- `fmcp-intent-router` → Adım 1 intent tablosuna `figma-prototype-flow` satırı
+- `SKILL_INDEX.md` → 25 → 26 skill; "Tuval Yazma ve Oluşturma" bölümüne yeni satır
+
+**Kapsam dışı (gelecek sürüm):** SET_VARIABLE / SET_VARIABLE_MODE / UPDATE_MEDIA_RUNTIME / CONDITIONAL actions, ON_MEDIA_HIT / ON_MEDIA_END triggers, multi-action per reaction (tek click → 2+ aksiyon), CUSTOM_CUBIC_BEZIER / CUSTOM_SPRING easing, Dev Mode annotation, Send to Figma Make (FUTURE.md ayrı P0).
+
+**Figma Plugin API uyumluluğu:** Transition shape `{ type, direction?, matchLayers?, easing: {type}, duration (saniye) }` — birleşik `SLIDE_FROM_RIGHT` gibi tipler kullanılmadı (Figma API'de yok). `transition: null` = instant (UX'te `"INSTANT"` enum değeri plugin'de null'a çevrilir).
+
+## [1.9.8] - 2026-04-19
+
+### Added — figma_get_code_connect + figma_use (Design-to-Code köprüsü)
+
+- **`figma_get_code_connect`** — Component/Instance node'ları için Code Connect hint'lerini getirir: `documentationLinks`, `componentKey`, `description`. `nodeIds` veya `scanCurrentPage=true` ile çalışır; `maxNodes` cap (varsayılan 40, max 120).
+- **`figma_use`** — Yüksek seviyeli orchestrator. Tek çağrıda `intent='component' | 'token' | 'design_context'` ile ilgili connector metodlarını `Promise.all` ile paralel çağırır; kısmi başarıyı `partial: true` ile raporlar.
+- Plugin tarafı: `GET_CODE_CONNECT_HINTS` handler (code.js) ve `window.getCodeConnectHints` (ui.html) zaten v1.6+ itibarıyla canlıdı; bu sürümde **extra port (5455+) handler'ına** 1 satır route eklendi (ana port ile simetri).
+- Connector: `PluginBridgeConnector.getCodeConnectHints()` metodu (searchLibraryAssets pattern'i).
+- Sınırlamalar: Tam Code Connect dosya yolları plugin API'den erişilemez — Figma'nın resmi MCP `get_code_connect_map` veya Figma CLI önerilir. `figma_use` içinde alt çağrılar `safe()` wrapper ile korunur (fail-fast YOK).
+- Doküman: [docs/TOOLS.md](docs/TOOLS.md), [docs/TOOLS_FULL_LIST.md](docs/TOOLS_FULL_LIST.md) (48 araç), [docs/CODE_CONNECT_USE_PLAN.md](docs/CODE_CONNECT_USE_PLAN.md) güncellendi; [FUTURE.md](FUTURE.md) P0 maddesi kapatıldı.
+
+## [1.9.7] - 2026-04-17
+
+### Zero-Click Enforcement — Blank File DS Gate + Mini DS + BLOCKING Suppression Prevention + Response Bootstrap
+
+**Hedef:** Kullanıcı Claude Desktop'ta hiç setup yapmadan (Project Knowledge boş, başlangıç prompt'u kopyalamadan) sadece "figma linki + ödeme ekranı tasarla" diyince tüm agent + skill chain'in otomatik devreye girmesi. Başarı oranı: Claude Desktop %90-95, Claude Code %98-99.
+
+**Motivasyon:** Gerçek test raporunda (boş Figma dosyası `<TEST_FILE_KEY>`, 17 Nisan) Claude:
+- İlk soru olarak DS değil stil sordu (yanlış sıra)
+- 0 component/0 variable tespit edince "sıfırdan çizeceğim" deyip ham createFrame + hardcoded değerlerle ekran kurdu
+- FMCP linter BLOCKING döndürünce "dosyada DS yok, geçerli değil" deyip **bastırdı**. v1.9.6 flag'leri dil seviyesinde skip edildi.
+
+**7 katmanlı çözüm:**
+
+**Katman 1 — Skill: Blank File Detection (fmcp-intent-router Adım 0 genişletme)**
+DS GATE artık dosya boşsa 4 seçenekli dialog sunuyor: (a) team library import, (b) mini DS auto-create, (c) template kopyala, (d) linter-off mode.
+
+**Katman 2 — Yeni tool `figma_create_mini_ds`**
+Tek tool çağrısı ile minimal DS: 12 color variable + 8 sizing variable + 3 text style + Button/Input/Card component. 2-phase batched (variables önce, components sonra). 45s timeout.
+
+**Katman 3 — Server BLOCKING Suppression Prevention (src/core/blocking-tracker.ts YENİ)**
+Session-level state tracker. figma_execute sonrası BLOCKING flag'li nodeId'leri kaydet. Sonraki execute aynı nodeId'ye mutation yaparsa server **HARD_ERROR** döndürür. Override için kod başına `// FORCE_OVERRIDE` comment gerekli. 5dk TTL. Dil seviyesinde skip imkansız.
+
+**Katman 4 — Skill Anti-Suppression (fmcp-screen-orchestrator)**
+Yasaklı dil kalıpları: "bu projede geçerli değil", "şimdilik skip edelim", "yine de devam". Claude pattern match ile kendi cevabını denetler.
+
+**Katman 5 — Response Bootstrap (src/core/bootstrap-injector.ts YENİ)**
+`figma_get_status` ilk call'da response'a `_bootstrap.critical_rules` (8 direktif) + `_bootstrap.anti_patterns` + `_nextStep` hints inject edilir. Claude her tool response'undan kuralları hatırlatılmış olarak alır.
+
+**Katman 6 — Embedded Skills (src/core/embedded-skills.ts YENİ, auto-generated)**
+Build-time script (`scripts/generate-embedded-skills.mjs`) 5 kritik skill'i (intent-router, orchestrator, canvas-ops, screen-recipes, project-rules) minify edip `EMBEDDED_SKILLS_SUMMARY` constant'ı üretir (~9K token). `figma_get_status` bootstrap'a gömülür. Kullanıcı Project Knowledge upload yapmasa bile Claude skill'i bilir. `prepublishOnly` hook'una eklendi.
+
+**Katman 7 (NOT IMPLEMENTED IN 1.9.7) — MCP Resources/Prompts capability** v1.9.8'e bırakıldı (platform bağımlılığı çok yüksek).
+
+**Version sync fix:** `src/core/version.ts` HARDCODED "1.9.2" → "1.9.7" (package.json ile senkron).
+
+**Skill güncellemeleri:**
+- `skills/fmcp-intent-router/SKILL.md` Adım 0 genişletildi (Blank File sub-check + 4-option dialog)
+- `skills/fmcp-screen-orchestrator/SKILL.md` Anti-Suppression Kuralı eklendi (server HARD_ERROR referansı)
+
+**Doc güncellemeleri:**
+- `install/claude-desktop/HOW-TO-ENFORCE.md` Zero-Click Workflow bölümü eklendi + sürüm matrisi güncellendi
+- Version bump: `package.json`, `f-mcp-plugin/code.js`, `f-mcp-plugin/ui.html` → 1.9.7
+- `package.json` prepublishOnly hook'a `generate:embedded-skills` eklendi
+
+**Plugin tarafı (f-mcp-plugin):**
+- `code.js` CREATE_MINI_DS handler (214 satır) — Phase 1 (variables + text styles) + Phase 2 (Button/Input/Card components)
+- `ui.html` `window.createMiniDs` dispatcher + method router (`createMiniDs` → CREATE_MINI_DS)
+- `ui.html` `window.captureScreenshot` v1.9.5 params (returnMode/regionStrategy/maxRegions/sliceHeight/requestedSlices) eklendi — önceden eksik olan v1.9.5 bug fix bonus
+
+**Regresyon:** Sıfır. Backwards compatible:
+- `figma_get_status` response'una yeni `_bootstrap` field eklendi, eski alanlar korunur
+- `figma_execute` suppression check BLOCKING flag olmadığı durumda skip edilir (temiz kod normal çalışır)
+- Eski `figma_create_mini_ds` çağrısı olmayan kullanıcılar etkilenmez (yeni opsiyonel tool)
+
+**Test matrisi:**
+- TypeScript type-check: PASS
+- Build: PASS
+- `generate-embedded-skills.mjs`: 9176 token üretti (plan'da 6K hedefi %53 aşıldı — plugin size threshold 250KB'den uzak, kabul edilebilir)
+- Embedded skills include: fmcp-intent-router (2399), screen-orchestrator (887), canvas-ops (2369), screen-recipes (2092), project-rules (1370)
+
+**Kullanıcı için upgrade:**
+```bash
+npm install -g @atezer/figma-mcp-bridge@1.9.7
+bash scripts/cleanup-ports.sh  # zombie temizle
+```
+Claude Desktop + Figma plugin yeniden aç. Console'da `[F-MCP v1.9.7]` gör.
+
+## [1.9.6] - 2026-04-17
+
+### Post-Execute Scan + Negative Intent Detection
+
+Gerçek test raporunda (Claude Desktop oturumu) gözlemlenen iki kritik regression'ı kapatır:
+
+1. **"Ana-DS olmayan renkler kullandı, tasarım sistemi dışına çıktı"** — `figma_execute` statik kod analizi unbound fill'i yakalıyor ama sadece kod'da `.fills = [{type:"SOLID"}]` literal yazılınca. Değişkenle gelen unbound fill atlanıyordu. **v1.9.6 runtime post-execute scan** execute sonrası oluşturulan node'ları tarar.
+
+2. **"Ana-DS Alt 3'ü atla dediği halde referans aldı"** — Skill'ler user intent parse etmiyordu, özellikle negative instruction'ları ("atla", "bakma", "dışında"). **v1.9.6 Negative Intent Detection** intent-router'da tanımlı pattern seti.
+
+**Plugin tarafı (f-mcp-plugin/code.js):**
+
+- **YENİ `postExecuteScan()` fonksiyonu**: `figma_execute` result'ı `createdNodeIds`, `nodeIds`, `ids`, `frameId`, `rootId` veya `nodeId` içeriyorsa subtree'yi tarar. Subtree başına 500 node limit, 10 violation cap. Kategori: `UNBOUND_FILL`, `UNBOUND_PADDING`, `UNBOUND_RADIUS`, `UNBOUND_ITEMSPACING`, `UNBOUND_TEXTSTYLE`. Instance node'lar fill check'ten muaf (binding main component'ten gelir).
+- **EXECUTE_CODE_RESULT response'a `_postExecuteScan` field**: `{ scanned, rootsScanned, totalChecked, violationCount, violations, passed, hint }`.
+- Plugin version sync: `code.js`, `ui.html` → `1.9.6`.
+
+**Server tarafı (src/local-plugin-only.ts):**
+
+- `figma_execute` response'u `_postExecuteScan`'i yakalayıp `violationCount > 0` olduğunda response'un üstüne **`_POST_EXECUTE_SCAN_BLOCKING: true`** top-level flag ekler.
+- `_postExecuteViolations` detaylı obje: severity="BLOCKING", action metni, retry_required: true, violation listesi.
+- `figma_execute` tool description v1.9.6 post-scan pattern açıklamasıyla güncellendi (skill'in `return { createdNodeIds: [...] }` yapması için hatırlatma).
+
+**Skill güncellemesi (skills/fmcp-intent-router/SKILL.md):**
+
+- **v1.9.6 Negative Intent Detection** bölümü — 5 patern: "atla", "bakma", "benzetme", "dışında/hariç", "sıfırdan/baştan".
+- Parse sonucu `exclude_references: [...]` ve `anti_pattern_refs: [...]` state field'ları.
+- Kullanıcı "X atla" dediyse Claude X'e referans vermez, screenshot almaz. Explicit anti-pattern.
+- `last-intent.md` persist — aynı oturum boyunca geçerli.
+
+**Kullanıcı için ne değişir:**
+
+1. **Runtime enforcement**: `figma_execute` ile kod çalışırsa ve oluşan node'larda unbound fill/padding/radius/text-style varsa response üstünde `_POST_EXECUTE_SCAN_BLOCKING: true` görürsün — Claude retry yapmak zorunda. Statik kod analizi eksik kalan runtime bugs artık yakalanır.
+2. **Intent parsing**: "Ana-DS Alt 3 atla" gibi negative instruction Claude tarafından doğru parse edilir, referans alınmaz.
+3. Plugin reload gerekir: yeni `postExecuteScan` handler v1.9.6 plugin'de.
+
+**Regresyon:** Sıfır. Backwards compatible:
+- Eski kod `createdNodeIds` döndürmüyorsa post-scan skip edilir (null return) — eski davranış korunur.
+- `_POST_EXECUTE_SCAN_BLOCKING` flag sadece violation varsa eklenir; temiz kodlarda response aynen v1.9.5.
+- Negative intent parser skill direktifi; opt-in.
+
+**Test matrisi:**
+
+- TypeScript type-check: PASS
+- Build: PASS
+- postExecuteScan() subtree walk: stack-safe 500 node cap
+- Server injection priority: postScanBlocking → budgetBlocking → dsViolations → result
+
+## [1.9.5] - 2026-04-17
+
+### Chat Context Korumaları — Screenshot Method Selection + Discovery Budget
+
+Claude Desktop'ta test edilen gerçek oturumda context bütçesi patlaması (188K/200K = %94 dolu, 3 base64 screenshot %45 context yedi, üretim fazına bile gelinmedi) gözlemlenince bu sürüm acil hazırlandı. v1.9.4 üretim enforcement'ı doğruydu ama **keşif aşamasını korumuyordu**. v1.9.5 bu eksikliği kapatır.
+
+**Felsefe:** "Screenshot yasak" yanlış — bazen gerekli. Çözüm **yasak** değil, **doğru yöntem seçimi**. Claude bağlama göre 4 mode'dan seçer.
+
+**Değişiklikler:**
+
+- **`figma_capture_screenshot` 4 returnMode** (src/local-plugin-only.ts + f-mcp-plugin/code.js):
+  - `"file"` (yeni default): Screenshot `~/.fmcp/screenshots/<timestamp>-<nodeId>.jpg` altına yazılır, response'ta sadece `filePath` döner. Context maliyeti 30K → 0.3K token (100× tasarruf). Claude Desktop `open <filePath>` ile açabilir.
+  - `"summary"`: Screenshot çekilmez; yerine metadata özeti (sections, dominantColors, textRoles, layoutMode, dimensions) plugin API ile çıkarılır. Planlama aşaması için. ~0.5-1K token.
+  - `"regions"`: `regionStrategy: "children"` ile node'un top-level child'ları ayrı ayrı export edilir, her biri dosyaya. Büyük/scroll'lu ekranlarda parçalı inceleme için. `regionStrategy: "slices"` v1.9.5'te henüz desteklenmiyor (Figma exportAsync crop API'si yok).
+  - `"base64"`: Eski davranış, opt-in. Response'a `_warning: "BASE64_MODE..."` eklenir.
+  - Tüm mode'lar backwards compatible; default değişti ama eski `"base64"` explicit çağrılırsa çalışır.
+
+- **`src/core/discovery-counter.ts` (YENİ)**: Session-level keşif budget counter. `figma_get_*`, `figma_search_*`, `figma_list_*`, `figma_capture_screenshot` çağrıları sayılır. `figma_execute` için kod pattern analizi: read-only (`findAll`, `getNodeByIdAsync`) → discovery; mutation (`createFrame`, `setBoundVariable`) → build, counter reset. 8 çağrıda `_warnings: ["DISCOVERY_BUDGET_WARNING..."]`, 12'de `_DISCOVERY_BUDGET_EXCEEDED_BLOCKING: true`.
+
+- **`scripts/cleanup-ports.sh` (YENİ)**: 5454-5470 aralığındaki zombie FMCP process temizleyici. Sadece `figma-mcp-bridge` / `local-plugin-only` / `@atezer` ile eşleşenleri öldürür, diğer node process'lerine dokunmaz. "Plugin bağlanmıyor" sorununa karşı.
+
+- **Skill güncellemeleri:**
+  - `skills/fmcp-intent-router/SKILL.md`: v1.9.5 Elicitation Kuralı — maks 1 `AskUserQuestion`, "devam et" sonrası soru yasak.
+  - `skills/fmcp-screen-orchestrator/SKILL.md`: v1.9.5 Discovery Budget Rule (maks 3 keşif → plan sun) + Screenshot Method Selection (karar ağacı: summary → file → regions → base64).
+  - `skills/figma-canvas-ops/SKILL.md`: v1.9.5 Concise Query Rule — boyut sorgusu tek satır (`n.width/height`), 20+ satır defansif kod yasak.
+
+- **Doc güncellemeleri:**
+  - `install/claude-desktop/HOW-TO-ENFORCE.md`: v1.9.5 sertleştirilmiş başlangıç prompt'u — discovery budget + screenshot method selection + elicitation kuralları. cleanup-ports.sh rehberi eklendi.
+  - `README.md`: Claude Desktop sınırlamaları güncellendi (dört katmanlı enforcement), cleanup-ports.sh notu.
+  - `.claude/design-systems/README.md`: user-local `file-map.md` bölümü eklendi.
+  - `.claude/design-systems/<ds>/CHEATSHEET.md` (kullanıcı-lokal): Anti-pattern tablosu yöntem-odaklı güncellendi (yasak yerine doğru yöntem örnekleri).
+
+- **Plugin version sync**: `code.js`, `ui.html`, `package.json` → `1.9.5`. Plugin'de `buildNodeSummary()` helper metadata çıkarımı için eklendi.
+
+**Kullanıcı için ne değişir:**
+
+1. **Screenshot default `file` mode**: Artık Claude screenshot aldığında base64 context'e girmez — dosyaya yazılır, sadece filePath görünür. Context maliyeti 100× düşer.
+2. **Büyük ekran → regions mode önerisi**: 2000px+ ekranda Claude `returnMode: "regions"` kullanır, parçalı exports.
+3. **Discovery budget**: Claude 12. keşif çağrısında BLOCKING alır, plan sunmaya zorlanır.
+4. **Plugin bağlantı sorunu**: `bash scripts/cleanup-ports.sh` ile zombie temizle.
+5. **Elicitation**: Claude artık "devam et" dedikten sonra soru sormaz.
+
+**Regresyon:** Sıfır. Backwards compatible:
+- Eski `figma_capture_screenshot` çağrıları (`returnMode` belirtilmeyen) yeni `"file"` default kullanır — response format farklı (base64 yok, filePath var). Bu explicit bir upgrade. Eski `"base64"` davranışı için `returnMode: "base64"` explicit geçin.
+- Plugin VALIDATE_SCREEN handler (v1.9.4) aynen çalışır.
+- figma_execute BLOCKING signal (v1.9.4) aynen çalışır.
+
+**Test matrisi:**
+- TypeScript type-check: PASS
+- Build: PASS
+- `discovery-counter.ts`: kod pattern analizi read-only vs mutation ayrımı
+- Plugin handler'lar: summary, regions (children), file (default), base64 (legacy) dört mode mevcut
+- `cleanup-ports.sh`: chmod +x, process-name filter
+
+**Not:** Plugin yeniden yüklenmeli. `@latest` npm tag v1.9.5'i işaret eder. Claude Desktop'ı tamamen kapat-aç, Figma plugin'i reload et.
+
+## [1.9.4] - 2026-04-17
+
+### Claude Desktop Enforcement Gap Kapatma — Runtime DS Compliance Scan + BLOCKING signal
+
+Claude Desktop'ta (hook/sub-agent/slash command yok) token binding ve DS disiplininin skip edilmesini engelleyen üç katmanlı enforcement sistemi. Önceki sürümlerde skill'lerde HARD LANGUAGE (168+ ZORUNLU/MUTLAK keyword) vardı ama Claude Desktop'ta plugin tarafında runtime zorlayıcı yoktu. Gerçek bir test ekranında (Ana-DS Anasayfa, 217 node) padding %5, radius %3, text style %25 bound olduğu ölçülünce bu sürüm acil hazırlandı.
+
+**Değişiklikler:**
+
+- **Yeni tool `figma_scan_ds_compliance`** (`src/local-plugin-only.ts`): Post-creation full-tree audit. Granular coverage (fills/paddings/radius/itemSpacing/textStyle/textColor/strokes), hardcoded hex sample'ları, hardcoded fontSize sample'ları, primitive frame fallback listesi, auto-layout overflow analizi döner. Default threshold 85 (stricter than validate_screen's 80). Read-only.
+- **Plugin `VALIDATE_SCREEN` genişletildi** (`f-mcp-plugin/code.js`): `breakdown` artık `coverage` ve `overflow` alanlarını her zaman döndürür. `detailed: true` param ile `samples.hardcodedHex`, `samples.hardcodedFontSize`, `samples.primitiveFrames` eklenir. Backwards compatible — eski alanlar korunur.
+- **`_designSystemViolations` action metni BLOCKING seviyeye yükseltildi** (`src/local-plugin-only.ts`): Yeni top-level flag `_DESIGN_SYSTEM_VIOLATIONS_BLOCKING: true`, severity field, retry_required field. Claude Desktop response'u skip edemesin diye dil güçlendirildi: "❌ BLOCKING: Bu kodu simdi duzelt ve tekrar calistir."
+- **Skill `fmcp-screen-recipes/SKILL.md` Adım 9** genişletildi: 9a inline scan (M3/M4 sonrası) + 9b final validate. `passed: false` veya coverage <%90 → retry zorunlu. Son Rapor'da coverage yüzdeleri, hardcoded sample'lar, overflow durumu zorunlu alanlar.
+- **Skill `figma-canvas-ops/SKILL.md` Rule 10a** (yeni): Her execute sonunda inline bind verification — `assertBound(node)` fonksiyonu. Unbound fill/padding/radius/text style tespit edilirse `throw` atar, execute başarısız sayılır.
+- **Doc `.claude/project-context.md`** güncellendi: "Pre-Commit Validation (v1.9.4)" bölümü. Plugin BLOCKING signal'inin yorumu.
+- **Yeni doc `install/claude-desktop/HOW-TO-ENFORCE.md`**: Claude Desktop kullanıcıları için step-by-step enforcement rehberi — Project Knowledge upload sırası, kopyala-yapıştır başlangıç prompt'u, mekanizma tablosu, test prompt'u, sorun giderme.
+- **`install/claude-desktop/PROJECT-KNOWLEDGE.md`** güncellendi: Enforcement paketi listesi (fmcp-project-rules, project-context.md, figma-canvas-ops, fmcp-screen-recipes, HOW-TO-ENFORCE.md) eklendi.
+- **`README.md`** güncellendi: "Claude Desktop sınırlamaları (v1.9.4 notu)" bölümü — hook/sub-agent/slash yok ama enforcement yine de çalışıyor, HOW-TO-ENFORCE'a link.
+- **Plugin version string sync**: `code.js`, `ui.html`, `package.json` → `1.9.4`.
+
+**Kullanıcı için ne değişir:**
+
+1. Ekran tamamlandığında `figma_scan_ds_compliance(nodeId, threshold=85)` çağrılır (skill direktifi). Coverage yüzdeleri dökülür. <%90 → derhal düzelt.
+2. `figma_execute` response'unda `_DESIGN_SYSTEM_VIOLATIONS_BLOCKING: true` görürsen kodu düzelt ve retry et — skip yok.
+3. Claude Desktop kullanıcıları: `install/claude-desktop/HOW-TO-ENFORCE.md` rehberindeki **Adım 3 başlangıç prompt'unu** her oturumun ilk mesajı olarak kopyala. Bu prompt Claude'a enforcement kurallarını hatırlatır.
+4. Eski `figma_validate_screen` tool aynen çalışır (backwards compat) — `breakdown` artık coverage + overflow da içerir, mevcut kullanıcılar kırılmaz.
+
+**Regresyon:** Sıfır. Plugin API (`validateScreen`) backwards compatible — tüm mevcut alanlar korundu, yeni alanlar eklendi. Connector API ek method (`scanDsCompliance`) aldı, mevcut `validateScreen` aynı kaldı. Plugin transport protokolü (`msg.type === 'VALIDATE_SCREEN'`) tek handler kullanıyor, `detailed` param opsiyonel.
+
+**Test matrisi:**
+
+- TypeScript: ✅ `npm run type-check` temiz
+- Build: ✅ `npm run build` temiz
+- Eski test ekranı (node 12:400) ölçümü: padding %5, radius %3, text style %25 — bu sürümden önce sessizdi, şimdi SEVERE BLOCKING döner
+- Yeni tool (`figma_scan_ds_compliance`) Claude Desktop restart sonrası register olur
+
+**Not:** Hook/sub-agent/slash command Claude Desktop'ta hâlâ yok (Anthropic platform sınırı). Bu sürüm mevcut platform kapasitesi içinde mümkün olan en güçlü enforcement'ı sağlar.
+
+## [1.9.3] - 2026-04-17
+
+### DS Cache İki Katmanlı Mimari + Güvenlik Redact
+
+Tasarım sistemi cache framework'ü **public template + user-local cache** olarak iki katmana ayrıldı. Kurumsal Figma library key'leri (componentKey, variableKey, file key) artık **repo'ya yazılmaz**; her kullanıcının makinesinde `~/.claude/data/fcm-ds/<file-key>/` altında tutulur.
+
+**Neden:**
+
+FCM açık kaynak MCP server/plugin dağıtımı — `@atezer/figma-mcp-bridge` npm paketi ve GitHub repo public. Önceki `tokens.md` / `components.md` stub'ları gerçek key ile doldurulduğunda kurumsal Figma IP'si (hash key'ler, file key'ler) repo'ya sızıyor ve kullanıcıya özel çözüm sunmuyordu. Ek olarak Figma'da variable/component rename olunca cache'lenmiş key invalid oluyordu.
+
+**Değişiklikler:**
+
+- `.claude/design-systems/README.md`: İki-katman mimari dokümante edildi (public template vs user-local cache), skill okuma sırası tanımlandı (user-local → repo template → runtime resolve)
+- `.claude/design-systems/active-ds.md`: Gerçek `file key` kaldırıldı, user-local pointer pattern'ine geçildi
+- `.claude/design-systems/ana-ds/tokens.md`: Generic token isim paternleri (spacing/radius/surface/typography rol haritası) — variableKey yok
+- `.claude/design-systems/ana-ds/components.md`: Generic component isim paternleri (Top usage-ranked) + eksik listesi + primitive fallback tablosu — componentKey yok
+- `.claude/design-systems/<ds>/CHEATSHEET.md` (yeni, kullanıcı-lokal): 10 bölümlük workflow rehberi (karar ağacı, 9 recipe index, 5-tab IA, custom dashboard pattern, 3 mutlak kural, anti-pattern listesi, hedef metrikleri, sorun giderme)
+- `.gitignore`: DS cache güvenlik katmanı eklendi (`.claude/design-systems/*/_meta.md`, `*.cache.md`, `*.local.md`)
+- `CHANGELOG.md`: v1.7.30 entry'sinden `<EXAMPLE_FILE_KEY>` file key redact
+- `install/TOKEN-BUDGET.md`: Text style import key redact (`<TEXT_STYLE_KEY>`)
+
+**Kullanıcı için ne değişir:**
+
+- İlk kurulum: `/ds-sync ana-ds` (veya "Ana-DS cache oluştur") komutu ile kendi makinenizde user-local cache oluşur; repo'ya girmez
+- `fmcp-screen-recipes` cache-first mantığı değişmez ama artık önce user-local'e bakar, yoksa repo template'ine düşer, yoksa runtime resolve yapar
+- Mevcut cache'i olan kullanıcılar: `.claude/design-systems/<lib>/` altında gerçek key varsa manuel olarak `~/.claude/data/fcm-ds/<file-key>/` altına taşıyın
+
+**Regresyon:** Sıfır. Plugin / MCP server kodu değişmedi; yalnızca `.claude/` dokümantasyon + `.gitignore` + iki CHANGELOG redact.
+
+**Not:** `.claude/` klasörü npm paketinin `files` alanında değildir; bu release npm paket içeriğini değiştirmez. Release yalnızca CHANGELOG + version tutarlılığı içindir.
+
+## [1.9.2] - 2026-04-17
+
+### Plugin Version Sync + Diagnostic Startup Log (v1.9.1 Tamamlayıcı Hotfix)
+
+v1.9.1 release'inde plugin tarafındaki `FMCP_PLUGIN_VERSION` string'i (`ui.html` + `code.js`) `'1.8.2'`'de kalmıştı — server-side kod v1.9.1 olarak yayınlanmış olmasına rağmen. Bu hotfix plugin version'unu senkronize eder ve plugin yüklendiğinde belirgin bir startup log ekler.
+
+**Değişiklikler:**
+
+- `f-mcp-plugin/ui.html`: `FMCP_PLUGIN_VERSION = '1.8.2'` → `'1.9.2'`
+- `f-mcp-plugin/code.js`: aynı
+- `f-mcp-plugin/ui.html`: Plugin yüklendiğinde `console.log('[F-MCP v1.9.2] Plugin loaded — server-side sibling discovery active')` startup log'u eklendi
+
+**Neden önemli:**
+
+v1.9.1'de plugin tarafı kod düzeltildi (welcome handler'a `activeBridges` branch eklendi, `scanOtherPorts` artık sadece fallback olarak çalışıyor) ama Figma plugin iframe'i bazen eski cache'ini tutuyor. Bu hotfix'teki startup log sayesinde:
+
+- Plugin'i açıp DevTools → Console'da `[F-MCP v1.9.2]` log'u görüyorsan → **yeni kod yüklendi, blind scan devre dışı**
+- Log göremiyorsan → eski cache hâlâ aktif, `docs/TROUBLESHOOTING.md`'deki plugin remove + re-add talimatını uygula
+
+**Regresyon:** Sıfır. Sadece version string güncellemesi ve tek satır console.log — fonksiyonel davranış aynen kalır.
+
+## [1.9.1] - 2026-04-17
+
+### Plugin Multi-Bridge Discovery — Server-Side (Console Errors Tamamen Giderildi)
+
+Plugin DevTools console'unda görülen 22+ `WebSocket connection to ws://localhost:5458-5470/ failed: net::ERR_CONNECTION_REFUSED` hataları v1.9.1 ile **tamamen giderildi**. Plugin artık blind port scan yapmıyor; server'ın probe ettiği aktif bridge listesini kullanıyor.
+
+**Server tarafı (yeni — `src/core/plugin-bridge-server.ts`):**
+
+- `probeSiblingBridges()` metodu eklendi: 5454-5470 aralığını paralel probe eder, aktif fmcp bridge'leri tespit eder (mevcut `probePort` + `probeStatus` yeniden kullanılır)
+- Startup'ta initial probe (background, non-blocking) + 30 saniyede bir periyodik refresh
+- Welcome mesajına `activeBridges: number[]` field'ı eklendi (cache'ten, 0ms overhead)
+- Sibling değişikliklerinde `activeBridgesUpdate` push mesajı tüm bağlı plugin client'larına broadcast edilir
+- `stop()` içinde sibling probe interval temizlenir
+
+**Plugin tarafı (`f-mcp-plugin/ui.html`):**
+
+- Welcome handler: `msg.activeBridges` varsa sadece listed portlara `connectToExtraPort` çağırır, `scanOtherPorts` ve periyodik timer ÇAĞRILMAZ → console'da 0 `ERR_CONNECTION_REFUSED`. Field yoksa fallback olarak eski scan davranışı korunur (backward compat)
+- Yeni `activeBridgesUpdate` push handler: server yeni sibling keşfettiğinde otomatik ek port'lara bağlanır (30s içinde)
+- `switchActivePort()` bug fix: `mcpBridgeWs` ve `mcpConnectedPort` değişikliği kaldırıldı. Önceki kod main connection'ın response routing'ini bozuyordu (switch sonrası main'den gelen istekler yanlış porta cevap veriyordu). Artık switch sadece UI "aktif port" göstergesi için kullanılır; her connection kendi closure ws'inde (ui.html:1682, 1866) paralel çalışır
+
+**Backward Compatibility:**
+
+| Server | Plugin | Davranış |
+|--------|--------|----------|
+| v1.9.1 | v1.9.1 | Server `activeBridges` gönderir, plugin sadece listed'a bağlanır — **0 console error** |
+| v1.9.0 | v1.9.1 | Welcome'de field yok, plugin fallback scan — eski davranış (~22 error) |
+| v1.9.1 | v1.9.0 | Server field gönderir, plugin ignore eder, fallback scan — eski davranış |
+| v1.9.0 | v1.9.0 | Hiç değişmemiş |
+
+**Fonksiyonel Kazanımlar:**
+
+- Multi-client routing (Claude + Cursor + Windsurf aynı anda): aynen çalışır, her connection bağımsız closure ws
+- Port label + ◀▶ switch butonları: aynen çalışır (artık daha doğru, routing'i bozmadan)
+- `mcpConnections` Map: aktif kullanımda kalır (response routing için)
+- Yeni MCP process başlatıldığında plugin otomatik keşfeder (30s içinde, eskiden plugin restart gerekiyordu)
+- Welcome hızlı: cache'ten 0ms overhead (background probe startup'ta paralel yapılır)
+
+**Dokümanlar:**
+
+- `docs/TROUBLESHOOTING.md`: v1.9.1+ için "console hatası yok" notu, eski sürümler için `-WebSocket` filter talimatı
+- `docs/MULTI_INSTANCE.md`: yeni server-side discovery yaklaşımı belgelendi
+
+## [1.9.0] - 2026-04-17
+
+### Kural Enflasyonu Temizliği + Bridge Crash Koruması + Ana-DS Cache
+
+5 ardışık testten (FP-1-R serisi) elde edilen bulgularla yapılan kapsamlı temizlik. Skill dosyaları %57 küçültüldü, plugin tarafında büyük component set'lerin bridge'i kilitlemesi engellendi, Ana-DS cache altyapısı eklendi.
+
+**Skill Compaction — 2298 → 979 satır (%57 azalma, ~10K token tasarruf):**
+
+- `skills/fmcp-screen-recipes/SKILL.md` — 1090 → 528 satır
+  - Devre dışı bırakılmış Adım 3 (breakpoint bind) ve Adım 4a (collection enum NO-OP) uzun açıklamaları 1 satıra indirildi
+  - v1.9.x tarihçe anlatıları, FP-1-R test narratifleri, "neden" blokları kaldırıldı
+  - Execute 1 kod bloğu Türkçe comment'leri temizlenip sıkıştırıldı
+  - 8 recipe'ye (Login, Profile, List, Detail, Form, Onboarding, Dashboard, Settings) explicit `setProperties` override listesi eklendi — Payment v2.0.1'de yapılan düzeltme diğer recipe'lere de yayıldı
+  - Known Limitations, Tool Chunking Rules, Evolution Triggers bölümleri kompaktlandı
+
+- `skills/figma-canvas-ops/SKILL.md` — 805 → 285 satır
+  - Rule 22 async API tablosu Rule 2'ye taşındı, wrapper prose silindi
+  - Rule 23 (style import fail) 38 satırlık kod bloğu 15 satırlık try-catch iskeletine indirildi
+  - Rule 25 (validate timeout) 3 seviyeli fallback 10 satıra kısaltıldı, timeout gerekçesi tarihçesi silindi
+  - Rule 26 (component discovery) NavigationTopBar örnek çıktısı silindi, Text Style Discovery recipes Adım 1.6'ya cross-reference ile değiştirildi
+  - Rule 5a'daki timeout değeri "5000ms" → "15000ms" (gerçek koda uyumlu)
+  - Auto-layout, Component, Variable pattern'leri kompaktlandı
+
+- `skills/fmcp-screen-orchestrator/SKILL.md` — 403 → 166 satır
+  - Advanced section %60 kısaltıldı — Detay 1.0 Inspiration Handoff JSON schema örneği, Detay 6 Claude Web satırı, Detay 7 Verification Checklist Self-Audit Gate'e taşındı
+  - Filesystem MCP direktifi 17 → 5 satır, Resmi Figma MCP yasağı 17 → 8 satır
+
+**Bridge Crash Koruması:**
+
+- `f-mcp-plugin/code.js:extractComponentSetData` — `MAX_VARIANTS = 50` guard eklendi. Ana-DS Button (336 variant) gibi büyük component set'lerin children iterasyonu ilk 50 ile sınırlandırıldı. Response'a `_totalVariantCount` ve `_truncated` metadata alanları eklendi. 4+ dakika bridge timeout ve plugin crash riski ortadan kaldırıldı.
+- `f-mcp-plugin/code.js:extractComponentData` + componentSetData properties bloğu — `MAX_PROPERTIES = 100` guard eklendi. `componentPropertyDefinitions` iterasyonu property sayısıyla sınırlandırıldı.
+- `src/local-plugin-only.ts:figma_execute` — Timeout clamp 120s → 30s'ye indirildi. 15 op = ~200ms gerçek test verisi; 30s hâlâ çok bol. Yüksek timeout'lar artık bridge hang'lerini maskeleyemez.
+
+**Collection Keyword Match Düzeltmesi:**
+
+- `skills/fmcp-screen-recipes/SKILL.md:Adım 1.5 Execute 1` — `findColl([...])` içindeki jenerik `"theme"` fallback keyword'ü kaldırıldı. Ana-DS dışı DS collection'larının yanlışlıkla match edip her testte 1 ek düzeltme execute'u harcamasına neden oluyordu.
+
+**Ana-DS Component Key Cache Altyapısı (yeni):**
+
+- `.claude/design-systems/ana-ds/components.md` (yeni) — component key cache şablonu. NavigationTopBar, Button, Divider_H, TextField, Card, Avatar, ListItem, SearchBar, Chip, BottomNavBar için slot'lar. Recipes Adım 6 bu dosyayı önce okur; cache varsa (< 7 gün) `figma_search_assets` çağrısını atlar, direkt `importComponentByKeyAsync(key)` kullanır.
+- `.claude/design-systems/ana-ds/tokens.md` (yeni) — spacing token'ları, collection info (renk ve boyut koleksiyonları), surface background için cache şablonu. Recipes Adım 1.5 bu cache'i önce okur, fresh ise token discovery'yi komple atlar.
+
+**Beklenen Etkiler:**
+
+- Claude Desktop'ta her recipe çağrısı için okunacak skill yükü ~25K → ~12K token (%52 azalma, ~10K token/oturum)
+- Ana-DS gibi büyük library'lerle çalışırken bridge crash riski sıfıra yakın (variant/property guard)
+- Fast Path recipe süresi hedefi: 30+ dk → 10-12 dk (cache-first + skill compaction etkisi bir arada)
+- Collection/component discovery için harcanan execute sayısı: -2 ile -3 arası (cache hit durumunda)
+
+**Dokunulmayanlar (kasıtlı):**
+
+- `skills/generate-figma-screen/SKILL.md` (v1.8.x full workflow korundu)
+- `skills/inspiration-intake/SKILL.md`, `skills/fmcp-intent-router/SKILL.md`
+- `agents/*.md` delegator'lar
+- `f-mcp-plugin/ui.html` port scanning mantığı (v1.9.6 throttle'ı zaten yeterli)
+
+## [1.8.2] - 2026-04-14
+
+### DS Discipline Hotfix — Clone Tool Narrow Use + Build-from-Scratch Enforcement
+
+Hotfix for v1.8.1 live test findings. The root cause of "Claude produces 3 identical clones instead of 3 distinct alternatives" was diagnosed, validated against live Figma data, and fixed across 4 layers (plugin performance + static analysis + SKILL + instructions).
+
+**Live test evidence (what v1.8.1 did wrong):**
+- User requested "3 alternatives" (Hero Card / Liste Odaklı / Dark Header)
+- Claude used `figma_clone_screen_to_device` as shortcut → cloned benchmark 3 times → renamed → "done"
+- All 3 "alternatives" turned out **byte-for-byte identical** (same 14 children, same 3 Ana-DS instances, zero layout variation)
+- Claude picked the **wrong benchmark** (12:350 "Hesaplarım" draft with 14 children + `_childrenTruncated: 9`) instead of the ready-to-use `12:360 v10 Hero Card` (4 clean children)
+- Clone timed out repeatedly (30s too short), leaving **7 orphan duplicates** in the file
+- `getNodeById` sync call hit dynamic-page error (Claude had no warning)
+- Validate timed out too (30s + serial `await getMainComponentAsync` on every instance)
+
+**Phase 14A — Plugin Performance Fix:**
+- `f-mcp-plugin/ui.html` — `cloneScreenToDevice` timeout 30s → **120s**, `validateScreen` timeout 30s → **90s**
+- `f-mcp-plugin/code.js:CLONE_SCREEN_TO_DEVICE` — orphan cleanup on error: if clone was created but resize/reparent failed, `clonedNode.remove()` runs in catch block + `orphanCleanedUp: true` flag in response
+- `f-mcp-plugin/code.js:CLONE_SCREEN_TO_DEVICE` — warn when source has 20+ children (likely timeout candidate)
+- `f-mcp-plugin/code.js:VALIDATE_SCREEN` — **Pass 2 batch optimization**: first pass collects instances serially using sync `mainComponent`, deferred instances batch-resolve via `Promise.all([getMainComponentAsync()...])` in Pass 2. ~10x faster for 100+ node trees (60s → 5s typical).
+
+**Phase 14B — Static Analysis Expansion:**
+- `src/core/code-warnings.ts` — 5 new SYNC_API patterns added (v1.8.2 dynamic-page fixes):
+  - `figma.getNodeById(` → `figma.getNodeByIdAsync(`
+  - `figma.getStyleById(` → `figma.getStyleByIdAsync(`
+  - `figma.variables.getVariableById(` → `figma.variables.getVariableByIdAsync(`
+  - `figma.variables.getVariableCollectionById(` → `figma.variables.getVariableCollectionByIdAsync(`
+  - `figma.importComponentByKey(` → `figma.importComponentByKeyAsync(`
+- `tests/core/code-warnings.test.ts` — **6 new unit tests** (test count 77 → 83)
+- Now Claude's `figma_execute` code is statically checked for the common `Cannot call with documentAccess: dynamic-page` failure BEFORE it runs.
+
+**Phase 14C — SKILL Recovery + Benchmark Validation:**
+- `skills/fmcp-intent-router/SKILL.md` — New section **"Tool Failure Recovery Protocol"**:
+  - Retry rules: max 1 retry with different params, then STOP and ask user
+  - Orphan cleanup mandate: `figma_get_file_data` → detect orphans → list to user → delete with consent
+  - Failure Escalation Template (retries exhausted → user choice menu)
+- `skills/fmcp-intent-router/SKILL.md` — New section **"Benchmark Selection Validation"**:
+  - If node.type === PAGE → list child alternatives, ask user which one
+  - If FRAME childCount > 15 → warn about timeout risk
+  - If FRAME childCount > 25 → REFUSE auto-selection, force user choice
+  - Sibling scan: look for `v10`, `v11`, `alternative`, `variant` keywords and suggest cleaner alternatives
+  - Responsive pre-check: warn if benchmark has `layoutMode === NONE`
+- `skills/generate-figma-screen/SKILL.md` — New **Step 6.6: Inter-Screen Checkpoint Gate + Turn Budget**:
+  - 90s per-turn time limit
+  - Max 2 failed tool calls per turn
+  - Each alternative = separate turn (NO multi-alternative in single turn)
+  - Mandatory AskUserQuestion checkpoint after each turn ([Beğendim/Revize/Dur])
+- `src/core/instructions.ts` — New **"TOOL FAILURE RECOVERY"** section with retry/cleanup/turn-budget rules
+
+**Phase 14F REVIZE — Clone Tool Narrow Use + Build-from-Scratch (EN KRITIK):**
+
+Paradigma düzeltmesi kullanıcıdan geldi:
+> "Mevcut benchmark her zaman fikir olsun diye var ama sen doğrusunu yapmakla yükümlüsün. Responsive, auto-layout'lu, tasarım sistemine uygun — skillerindeki tüm gereksinimleri uygulamış olmalısın."
+
+Claude v1.8.1'de `figma_clone_screen_to_device` tool'unu **shortcut** olarak kullandı. Clone, benchmark'ın mevcut yanlışlıklarını (hardcoded rectangle, missing token binding, non-responsive layout) kopyaladı. Sonuç: **3 identik "alternatif"**.
+
+v1.8.2 bu tool'un kullanımını **4 katmanda** sertleştirdi:
+
+1. **Tool description sertleştirildi** (`src/local-plugin-only.ts`):
+   ```
+   ⚠️ NARROW USE CASE — Device migration ONLY.
+   USE ONLY WHEN: same DS + same layout + only size changes.
+   DO NOT USE FOR: creating alternatives, variations, or new designs.
+   If the user says 'alternatif', 'varyasyon', 'farklı', 'yeni', 'tasarla'
+   — USE figma_execute + Step 5, NOT this tool.
+   Benchmark is INSPIRATION, not a copy source for variations.
+   Clone copies benchmark's EXISTING mistakes.
+   ```
+
+2. **`skills/generate-figma-screen/SKILL.md`** — New **Step 3.5: Clone Tool'u Tuzağı**:
+   - Decision matrix: user request → correct tool
+   - "alternatif/varyasyon/farklı/yeni/tasarla/iyileştir/redesign" → BUILD, NOT CLONE
+   - Build-from-scratch flow documented (search_assets → instantiate_component → setBoundVariable → auto-layout FILL)
+   
+3. **`skills/generate-figma-screen/SKILL.md`** — New **Step 5.17: Quality Gate**:
+   - Mandatory 12-item checklist after each section creation
+   - Covers: layoutMode, primaryAxisSizingMode, counterAxisSizingMode, fill bindings, padding bindings, itemSpacing binding, cornerRadius binding, setTextStyleIdAsync, DS instance count, layoutSizingHorizontal = FILL
+   - Fail → delete section, rewrite complying with all rules
+   - Automatic JS-level check example provided
+
+4. **`skills/fmcp-intent-router/SKILL.md`** — New **Adım 3b: Approach Karar Mantığı**:
+   - Keyword detection table: "alternatif/varyasyon/..." → `approach = build-from-scratch` (DEFAULT)
+   - "migrate/boyut/klonla" → `approach = clone-to-device`
+   - "hizala/tokenize" → `approach = apply-ds-to-existing`
+   - Summary screen shows chosen approach explicitly: "Clone tool kullanılmayacak çünkü alternatif istenmiş"
+
+5. **`src/core/instructions.ts`** — New **"CLONE vs BUILD DECISION"** section (v1.8.2+ CRITICAL):
+   - Explicit rule list with example user phrases
+   - "Benchmark is ALWAYS inspiration, never a copy source for alternatives"
+   - Critical rule enforced at session-start instructions level
+
+**Phase 14G — Orphan Cleanup (canlı dosya):**
+
+v1.8.1 test session'ından dosyada kalan **7 orphan node silindi**:
+- 6 duplicate "Hesaplarım — Hero Card — iPhone 17" frame (`12:600`, `12:601`, `12:602`, `12:603`, `12:604`, `12:605`)
+- 1 orphan "iOS & Android Status Bars" instance (`12:606`)
+
+Cleanup `figma_execute` ile yapıldı, tümü başarılı: `removed: 7/7, failed: 0`.
+
+**Files changed (v1.8.2 total):**
+- `src/core/code-warnings.ts` — 5 new SYNC_API patterns
+- `tests/core/code-warnings.test.ts` — 6 new unit tests
+- `src/core/instructions.ts` — CLONE vs BUILD DECISION + TOOL FAILURE RECOVERY
+- `src/local-plugin-only.ts` — figma_clone_screen_to_device description sertleştirme
+- `f-mcp-plugin/code.js` — CLONE_SCREEN_TO_DEVICE cleanup + VALIDATE_SCREEN Pass 2 batch + FMCP_PLUGIN_VERSION='1.8.2'
+- `f-mcp-plugin/ui.html` — timeout 30s→120s + 30s→90s + FMCP_PLUGIN_VERSION='1.8.2'
+- `skills/fmcp-intent-router/SKILL.md` — Tool Failure Recovery + Benchmark Selection Validation + Adım 3b Approach Decision
+- `skills/generate-figma-screen/SKILL.md` — Step 3.5 Clone Tuzağı + Step 5.17 Quality Gate + Step 6.6 Turn Budget
+- `package.json` + `src/core/version.ts` — 1.8.1 → 1.8.2
+
+**Test coverage:** 83/83 passing (47 eski + 30 Phase 12A + 6 Phase 14B). Build clean, type-check clean.
+
+**Backwards compatibility:** 100% additive. All v1.8.1 tools still work; `figma_clone_screen_to_device` description changed but API unchanged. No breaking changes.
+
+**Migration from v1.8.1:**
+1. Reinstall Figma plugin from `f-mcp-plugin/` (new handlers require v1.8.2 plugin)
+2. Restart Claude Desktop (new `FMCP_INSTRUCTIONS` loads on session start)
+3. New test prompt: "alternatif" keyword triggers build-from-scratch automatically (no prompt changes needed)
+
+**Expected v1.8.2 test result:**
+- `figma_clone_screen_to_device` NOT called for alternatives
+- Claude uses `figma_execute` + Step 4-5 build pattern
+- Each alternative is ACTUALLY different (different layouts, different token usage)
+- Each turn has a user checkpoint
+- 0 orphans, 0 timeouts
+- Total time ≤ 5 minutes for 3 alternatives
+
+**Referenced plan:** `.claude/plans/compressed-wondering-lynx.md` (Phases 14A, 14B, 14C, 14F REVIZE, 14G)
+
+## [1.8.1] - 2026-04-14
+
+### DS Discipline Enforcement + Intent Router + High-Level Screen Tools
+
+Root cause fix for "Claude ignores Ana-DS tokens and builds screens from scratch". v1.8.0 added SKILL-level "MUTLAK ZORUNLU" wording but Claude still bypassed it on simple "ekran yap" requests. v1.8.1 combines three independent layers of enforcement:
+
+1. **Proaktif** — `figma_execute` code is statically analyzed for hardcoded colors/paddings/typography + no-instance usage; violations surface as `_designSystemViolations` banner Claude cannot ignore
+2. **Upstream** — `fmcp-intent-router` meta-SKILL forces Claude to gather missing inputs + obtain explicit confirmation BEFORE executing any write tool
+3. **Hızlı ve doğru kısayol** — `figma_clone_screen_to_device` + `figma_validate_screen` replace 100+ lines of hand-written `figma_execute` with 1 tool call each
+
+**Phase 12A — Static Analysis Enforcement:**
+- New module `src/core/code-warnings.ts` (extracted from `local-plugin-only.ts` for testability + single responsibility)
+- `CodeWarning` type with `SEVERE | ADVISORY` severity split
+- 6 new SEVERE categories: `HARDCODED_COLOR`, `NO_INSTANCE_USAGE`, `HARDCODED_FONT_SIZE`, `HARDCODED_SPACING`, `HAND_BUILT_SEPARATORS`, `NO_AUTO_LAYOUT`
+- Preserved 3 ADVISORY categories from v1.8.0: `ORDERING` (FILL/ABSOLUTE before appendChild), `SYNC_API`, `FONT_LOAD`
+- `figma_execute` response shape: SEVERE → `_designSystemViolations` top-level prominent field with `message`, `count`, `violations[]`, `action`. ADVISORY → `_warnings` legacy format
+- Regex patterns detect both multi-line and compact SOLID color literals, `.fontSize = N`, spacing property assignments, `createFrame`/`createRectangle` counts with instance/binding negation
+- 30 new unit tests in `tests/core/code-warnings.test.ts` — positive pattern detection + false-positive prevention + multi-violation + structural invariants
+
+**Phase 13 — Universal Intent Clarification & Skill Routing:**
+- New meta-SKILL `skills/fmcp-intent-router/SKILL.md` — 8-step protocol (analyze → state check → decide skill → read required_inputs → gather missing → summary+confirm → execute → persist)
+- Fast path (detailed request skips question gathering), repeat path (single "öncekiyle aynı mı?"), partial reuse path (only changed fields asked)
+- Ambiguity handling: generic request, multi-match, wrong-skill prevention
+- Anti-patterns documented: don't skip confirmation, don't assume defaults, don't execute without routing
+- `required_inputs` YAML metadata added to 8 priority skills:
+  - `generate-figma-screen` (device, ds, reference, type, sections, variants)
+  - `apply-figma-design-system` (target_scope, target_node, ds, backup, preserve_content, swap_strategy)
+  - `audit-figma-design-system` (target_scope, target_node, ds, severity, report_format)
+  - `generate-figma-library` (source_type, source_path, library_name, components, tokens, theme_support)
+  - `implement-design` (source_node, target_platform, output_dir, tests, existing_components)
+  - `code-design-mapper` (direction, figma_component, code_path, platform, output)
+  - `visual-qa-compare` (figma_source, rendered_source, rendered_url, threshold, categories)
+  - `design-token-pipeline` (direction, target_format, source_path, output_path, token_types, themes)
+- New state files: `.claude/design-systems/last-intent.md` (single most recent intent), `.claude/design-systems/intent-history.md` (LRU 5 — for fast reuse path)
+- `FMCP_INSTRUCTIONS` (src/core/instructions.ts) grew from 137 → ~220 lines: new "INTENT ROUTER ENTRY (ALWAYS FIRST)" section with 8-step protocol + fast/repeat paths + FORBIDDEN list
+
+**Phase 12B — `figma_clone_screen_to_device` tool:**
+- Primary answer to "hızlı ve doğru" — clones benchmark screen + adapts to target device dimension + preserves library instances + bound variables + auto-layout
+- 4-layer implementation: MCP tool schema + connector method + plugin handler `CLONE_SCREEN_TO_DEVICE` + ui.html dispatch
+- New `src/core/device-presets.ts` with 22 built-in presets (iPhone 17, iPhone 16 Pro Max, Android Compact, iPad Pro, MacBook Pro, Apple Watch, etc.) + custom "WxH" dimension support
+- Auto-layout resize fix: switch `primaryAxisSizingMode`/`counterAxisSizingMode` from AUTO to FIXED before `resize()` to prevent hug-content no-op
+- Clone counts preserved elements (totalNodes, instanceCount, libraryInstanceCount, boundVariableCount) and returns them in result for Claude to verify
+- Example: `figma_clone_screen_to_device({ sourceNodeId: "12:345", targetDevice: "iPhone 17" })` → new node with all Ana-DS instances preserved, root resized to 402×874, auto-layout intact
+
+**Phase 12D — `figma_validate_screen` tool:**
+- Post-creation audit. Iterative (stack-safe, max 5000 nodes) tree walker computes 3 DS compliance metrics:
+  - `instanceCoverage` (library instance usage — normalized 30-100 scale when any library instance exists)
+  - `autoLayoutCoverage` (frames with `layoutMode != NONE`)
+  - `tokenBindingCoverage` (nodes with `boundVariables` populated)
+- Weighted aggregate score: 40% instances + 30% bindings + 30% layout
+- Returns `{ score, passed, breakdown, violations (capped 20), recommendation }`
+- Read-only — never mutates the file
+- Violation categories: `NO_AUTO_LAYOUT`, `HARDCODED_FILL` (with node ID, name, severity, message)
+
+**Phase 12E — `generate-figma-screen` Step 6.5 Self-Audit Mandate:**
+- New ZORUNLU step in SKILL: call `figma_validate_screen` before reporting to user
+- Score ≥ 80 → accept, report breakdown
+- Score 60-79 → read violations, targeted fixes, re-validate
+- Score < 60 → delete screen, rebuild (max 3 attempts)
+- Anti-patterns documented: "screenshot güzel, validate'e gerek yok" (yanlış — token binding gözle görünmez)
+- Fail-after-3 → ask user "elle düzeltmek mi, farklı yaklaşım mı?"
+
+**Phase 12F — `figma_create_frame` DS token binding params:**
+- New params: `fillVariableKey`, `paddingVariableKey`, `itemSpacingVariableKey`, `cornerRadiusVariableKey`
+- `fillColor` and `cornerRadius` marked DEPRECATED in schema description — prefer variable keys
+- Plugin execution via `figma.variables.importVariableByKeyAsync` + `setBoundVariableForPaint` (fills) or `setBoundVariable` (spacing/radius)
+- Returns `boundVariableCount` in result so Claude can verify binding worked
+- Graceful fallback: if variable import fails, logs warning and proceeds without binding (caller can retry with correct key)
+
+**Files changed (v1.8.1 total):**
+- NEW: `src/core/code-warnings.ts` (analyzeCodeForWarnings + CodeWarning type)
+- NEW: `src/core/device-presets.ts` (22 presets + resolveDevice helper)
+- NEW: `skills/fmcp-intent-router/SKILL.md` (meta-skill, 400+ lines)
+- NEW: `.claude/design-systems/last-intent.md`, `intent-history.md` (state templates)
+- NEW: `tests/core/code-warnings.test.ts` (30 tests)
+- UPDATED: `src/local-plugin-only.ts` (import code-warnings + device-presets, figma_execute SEVERE split, figma_clone_screen_to_device, figma_validate_screen, figma_create_frame variable binding params)
+- UPDATED: `src/core/plugin-bridge-connector.ts` (cloneScreenToDevice, validateScreen methods)
+- UPDATED: `src/core/instructions.ts` (INTENT ROUTER ENTRY section)
+- UPDATED: `f-mcp-plugin/code.js` (CLONE_SCREEN_TO_DEVICE + VALIDATE_SCREEN handlers, FMCP_PLUGIN_VERSION='1.8.1')
+- UPDATED: `f-mcp-plugin/ui.html` (cloneScreenToDevice + validateScreen window functions + method dispatch, FMCP_PLUGIN_VERSION='1.8.1')
+- UPDATED: 8 SKILL files with `required_inputs` metadata (generate-figma-screen, apply-figma-design-system, audit-figma-design-system, generate-figma-library, implement-design, code-design-mapper, visual-qa-compare, design-token-pipeline)
+- UPDATED: `skills/generate-figma-screen/SKILL.md` Step 6.5 Self-Audit Mandate
+- UPDATED: `package.json` + `src/core/version.ts` (1.8.0 → 1.8.1)
+
+**Test coverage:**
+- 47 pre-existing tests preserved (regression-free)
+- 30 new code-warnings tests
+- **Total: 77/77 passing**
+- Build: TypeScript strict mode, 0 errors
+
+**Backwards compatibility:**
+- No API shape changes. All new tools are additive
+- `fillColor` / `cornerRadius` still work on `figma_create_frame` — just marked DEPRECATED
+- `_warnings` response field preserved for legacy SKILL consumers
+- Plugin v1.8.0 + server v1.8.1: `figma_clone_screen_to_device` and `figma_validate_screen` will return "Unknown message type" until plugin is reinstalled. `figma_get_status` warns about version mismatch
+- `FMCP_LEGACY_DEFAULTS=1` env flag from v1.8.0 still works
+
+**Migration from v1.8.0:**
+1. Reinstall plugin from `f-mcp-plugin/` in Figma (to get CLONE_SCREEN_TO_DEVICE + VALIDATE_SCREEN handlers)
+2. New Claude sessions will automatically use Intent Router protocol via updated `FMCP_INSTRUCTIONS`
+3. `figma_execute` calls with hardcoded patterns now show `_designSystemViolations` — Claude will self-correct
+
+**Referenced plan:** `.claude/plans/fmcp-v1.8.1-ds-discipline-enforcement.md` (Phases 12A, 12B, 12D, 12E, 12F, 13A, 13B, 13D, 13E)
+
+## [1.8.0] - 2026-04-14
+
+### Context-Safe Defaults + Plugin Response Guard + DS Context Enforcement
+
+Major improvement: Claude chat'te F-MCP kullanırken context bloat ve runtime hataları kökünden çözüldü. 1-2 tool çağrısından sonra "This conversation is too long" hatası alan kullanıcılar artık tek session'da tam bir Figma → Ana-DS ekran üretim akışını tamamlayabilir.
+
+**Context Bloat Fix'leri (E1 — kritik):**
+- `figma_get_design_context`: default `depth=2 → 1`, `verbosity="standard" → "summary"`. Tipik response 150-400 KB → 5-25 KB. ~%75 token tasarrufu.
+- 3 katmanda eşzamanlı default alignment: MCP zod schema (`local-plugin-only.ts:298-299`) + connector (`plugin-bridge-connector.ts:289-290`) + plugin handler (`f-mcp-plugin/code.js:2587, 2646`). Tek katman update yetersizdi.
+- `figma_capture_screenshot`: default `format="PNG" → "JPG"`, `scale=2 → 1`, yeni `jpegQuality=70` param. Base64 boyutu ~%80 küçüldü. `figma_get_component_image`, `figma_get_component_for_development`, `figma_export_nodes` aynı default'ları kullanıyor.
+- **`truncatePluginResponse`** (yeni `response-guard.ts` fonksiyonu): Plugin response'ları için 4-stage progressive pruning (children cap → effects/boundVariables → fills/strokes → minimal). `PLUGIN_SIZE_THRESHOLDS` (40/80/160/250 KB) — REST limitlerinden çok daha sıkı. Worst-case'i capluyor.
+- `toolResult()` shared envelope helper — okuma tool'larını wrap eder, `_responseGuard` marker ile telemetri sunar.
+- **`ResponseCache` wire-up**: Önceden dormant olan cache (line 200, sadece `invalidateCache()` 19 yerden çağrılıyordu) artık `figma_get_design_context` ve `figma_get_file_data`'da TTL=60s ile aktif. SKILL chain içinde duplicate fetch'leri elimine ediyor. Yeni `debug=true` param cache bypass için.
+- Plugin handler falsy bug fix: `msg.depth || 2` → `msg.depth != null ? msg.depth : 1`. `depth=0` artık doğru iletiliyor.
+- `FMCP_LEGACY_DEFAULTS=1` env var: v1.7.x default'larına geri dönmek için escape hatch (v1.9.0'da kaldırılacak).
+
+**Runtime Hata Fix'leri (E2-E7):**
+- **E2 — Custom DS font Medium weight hatası**: `figma-canvas-ops` Kural 8a-1 eklendi — `figma.listAvailableFontsAsync()` ile available weight check + `pickStyle()` fallback (Medium → Semi Bold → Regular). DS fontlarında "Medium"un yokluğu artık otomatik handle ediliyor.
+- **E3 — `layoutPositioning = ABSOLUTE` parent layoutMode hatası**: `figma-canvas-ops` Kural 11 genişletildi. `appendChild` ÖNCE, `layoutPositioning` SONRA. Yeni `appendAbsolute(child, parent, x, y)` helper pattern dokümante edildi.
+- **E4 — Wrong MCP server selection**: `FMCP_INSTRUCTIONS` (`src/core/instructions.ts`) tamamen yeniden yazıldı. Yeni "TOOL SELECTION" bölümü Claude'a F-MCP plugin bağlıyken resmi Figma MCP `search_design_system`'i çağırmamasını söylüyor. "Resource links not supported" hatası önlendi.
+- **E5 — Frame oluşturma auto-layout eksik**: `figma_create_frame` MCP tool'una auto-layout parametreleri eklendi: `layoutMode` (default `"VERTICAL"`), `paddingTop/Bottom/Left/Right` (default 16), `itemSpacing` (default 12), `primaryAxisSizingMode/counterAxisSizingMode` (default `"AUTO"`), `primaryAxisAlignItems`, `counterAxisAlignItems`, `layoutWrap`. `layoutMode="NONE"` ile legacy free-form frame de mümkün.
+- **E6 — Library bileşen keşfi (Ana-DS Button vb.)**: Plugin handler `SEARCH_LIBRARY_ASSETS` genişletildi. INSTANCE node'larını tarayarak `mainComponent.key` üzerinden remote library bileşenlerini keşfediyor. Yeni `libraryComponents` field ile dönüyor. `figma_search_assets({assetTypes: ['components'], currentPageOnly: false})` artık Ana-DS gibi DS bileşenlerini bulup `figma_instantiate_component` ile kullanılabilir hale getiriyor.
+- **E7 — Token binding eksik**: `figma-canvas-ops` Kural 10 (token binding) MUTLAK ZORUNLU olarak işaretlendi. Pre-flight checklist eklendi (active DS / component cache / token cache / font weights / variable keys). Eğer DS'te token yoksa Claude DURDURUR ve kullanıcıya sorar — sessizce hardcoded fallback YASAK.
+
+**DS Context Enforcement (yeni paradigm):**
+- **`.claude/design-systems/active-ds.md`**: Yeni state file. Kullanıcı bir kez DS seçtiğinde burada saklanır, sonraki ekran/bileşen oluşturma akışlarında otomatik kullanılır. "Hangi DS?" sorusu sadece active-ds.md `Status: ❌` ise sorulur.
+- `figma-canvas-ops` SKILL'e **Section 0 — Design System Context** eklendi. Her yazma akışının ilk adımı DS check.
+- `generate-figma-screen` SKILL'e **Step 0 — Aktif DS Kontrolü** eklendi. Cache-First Kuralı ZORUNLU PRE-FLIGHT BLOCKER yapıldı: cache yoksa ekran üretimi başlayamaz.
+- `FMCP_INSTRUCTIONS`'a **DESIGN SYSTEM CONTEXT** bölümü eklendi (Step A-D protokol).
+
+**Plugin Handshake Genişlemesi:**
+- WebSocket "ready" mesajına `pluginVersion` field eklendi (`f-mcp-plugin/ui.html:1410, 1710`).
+- `f-mcp-plugin/code.js` ve `ui.html`'e `FMCP_PLUGIN_VERSION = '1.8.0'` sabiti eklendi.
+- `ClientInfo` interface'e `pluginVersion?: string` (`plugin-bridge-server.ts:55-63`).
+- `ConnectedFileInfo` interface'e `pluginVersion: string | null`.
+- `figma_get_status` artık `serverVersion` ve plugin version mismatch warning (`versionWarning` field) döndürüyor. Eski plugin (v1.7.x) + yeni server (v1.8.0) çalışmaya devam eder ama kullanıcıya update öneri gelir.
+
+**FMCP_INSTRUCTIONS — Context-Safe Protocol:**
+- "CONTEXT-SAFE PROTOCOL (REQUIRED for Claude chat)" bölümü Claude'a 5 adımlı cheap-first workflow öğretiyor: plugin discovery → structural overview → minimum-verbosity targeting → screenshot only when needed → cache reuse.
+- "TOOL SELECTION" bölümü resmi Figma MCP vs F-MCP eşleşmesini açık yazıyor.
+- "DESIGN SYSTEM CONTEXT (REQUIRED for screen/component creation)" — DS soru protokolü ve token binding zorunluluğu.
+- "COMMON GOTCHAS" — Plugin API'nin 5 yaygın hatası (layoutSizing/layoutPositioning ordering, font weights, setCurrentPageAsync, import reserved word).
+
+**Test Coverage:**
+- `tests/core/response-guard.test.ts` 11 yeni test eklendi: `truncatePluginResponse` (8) + `PLUGIN_SIZE_THRESHOLDS` (2). Toplam 47 test, 3 suite, hepsi geçiyor.
+- Coverage: tree pruning (4 stage), envelope handling, custom maxKB, null/primitive handling, _responseGuard marker.
+
+**SKILL Güncellemeleri:**
+- `skills/figma-canvas-ops/SKILL.md`: Section 0 DS context check (yeni), Kural 8a-1 font availability check (genişletildi), Kural 10 token binding mutlak zorunluluk (güçlendirildi), Kural 11 layoutPositioning ABSOLUTE (genişletildi), Section 7 hata kurtarma (yeni hata satırları).
+- `skills/generate-figma-screen/SKILL.md`: Step 0 DS check (yeni), Step 3 cache-first ZORUNLU pre-flight blocker (güçlendirildi), Step 3 resmi Figma MCP uyarısı (yeni).
+- `.claude/design-systems/active-ds.md`: Yeni state file şablonu.
+
+**Backwards Compatibility:**
+- Default değişiklikleri observable ama API shape değişmedi. Explicit `verbosity="standard"`/`depth=2` geçen caller'lar etkilenmez.
+- `FMCP_LEGACY_DEFAULTS=1` env var: v1.7.x davranışına geri dön (v1.9.0'da kaldırılacak).
+- `debug=true` per-tool param: cache bypass + `_responseGuard` include (eski davranışa benzer).
+- `excludeScreenshot` param schema'da kaldı (SKILL'lerde kullanılıyor) ama plugin handler'ı zaten implement etmiyordu — değişiklik yok.
+- Plugin/server version mismatch'i `figma_get_status` warning ile bildirilir, çalışmaya devam eder.
+
+**Kritik Dosya Değişiklikleri:**
+- `src/local-plugin-only.ts`: defaults, helpers (`toolResult`, `makeCacheKey`, `errorResult`), figma_get_design_context+figma_get_file_data cache+truncation wireup, figma_capture_screenshot+component_image+component_for_development+export_nodes screenshot defaults, figma_create_frame auto-layout params, figma_get_status pluginVersion mismatch warning, figma_search_assets description update.
+- `src/core/response-guard.ts`: `PLUGIN_SIZE_THRESHOLDS` constant, `truncatePluginResponse()` with 4-stage progressive pruning, `pruneNodeTree()` helper.
+- `src/core/plugin-bridge-connector.ts`: `getNodeContext` defaults align (`depth ?? 1`, `verbosity ?? "summary"`), `captureScreenshot` `jpegQuality` param.
+- `src/core/plugin-bridge-server.ts`: `ClientInfo.pluginVersion`, `ConnectedFileInfo.pluginVersion`, "ready" handler reads `msg.pluginVersion`, `listConnectedFiles()` returns it.
+- `src/core/instructions.ts`: tamamen yeniden yazıldı — Context-Safe Protocol + Tool Selection + DS Context + Common Gotchas.
+- `src/core/version.ts`: `1.7.30` → `1.8.0`.
+- `package.json`: `1.7.30` → `1.8.0`.
+- `f-mcp-plugin/code.js`: `FMCP_PLUGIN_VERSION = '1.8.0'`, GET_NODE_CONTEXT defaults align, CAPTURE_SCREENSHOT format/scale/jpegQuality defaults, SEARCH_LIBRARY_ASSETS instance scan for library components.
+- `f-mcp-plugin/ui.html`: `FMCP_PLUGIN_VERSION` const, "ready" handshake `pluginVersion` field (2 lokasyon), `captureScreenshot` `jpegQuality` passthrough.
+- `skills/figma-canvas-ops/SKILL.md`, `skills/generate-figma-screen/SKILL.md`, `.claude/design-systems/active-ds.md`.
+- `tests/core/response-guard.test.ts`: 11 yeni test.
+
+**Migration:**
+- Yeni server v1.8.0 + eski plugin v1.7.x: çalışır, `figma_get_status` warning gösterir. Plugin'i Figma'da yeniden yükleyin (`f-mcp-plugin/manifest.json`).
+- Eski default'lara dönmek isteyenler: `FMCP_LEGACY_DEFAULTS=1` env var set edin.
+- Per-call cache bypass: tool çağrısına `debug: true` ekleyin.
+
+## [1.7.30] - 2026-04-14
+
+### Ana-DS Design System Integration — search_assets bridge fix, new library tools, SKILL corrections
+
+F-MCP Bridge ile Ana-DS gibi team library tabanli tasarim sistemleri kullanmak artik tam destekli. `figma_search_assets` artik bridge handler'ini dogru kullaniyor (hem variable hem local component dondurur), 3 yeni arac ile team library variable/style import + binding mumkun, SKILL'lerdeki "DS dosyasinda calistir" celiskisi giderildi.
+
+**Kritik Bug Fix'leri:**
+- `figma_search_assets` artik plugin'in `SEARCH_LIBRARY_ASSETS` handler'ini kullaniyor (eski inline executeCodeViaUI bypass'i kaldirildi). `assetTypes`, `limit`, `currentPageOnly`, `figmaUrl`, `fileKey` parametreleri eklendi. Hem variable collection'lari hem local file component'lerini donduruyor.
+- `fileKey: null` race condition: Plugin baglandiginda fileKey "ready" mesajiyla set ediliyor, arada gelen istekler hata aliyordu. `waitForClient(2s)` polling + transient retry eklendi.
+- `figma_execute` static analysis (`_warnings`): FILL before appendChild, sync API kullanimi, eksik loadFontAsync, sync currentPage atamasi tespit edilip uyari donuyor. Uyarilar TUM response path'lerinde (success + plugin error + try-catch error).
+
+**Yeni Araclar:**
+- `figma_get_library_variables` — Team library variable koleksiyonlarini import key'leriyle birlikte listeler. Hedef dosyada calisir, DS source dosyasina baglanmak GEREKMEZ. Filter: `query`, `collectionName`, `libraryName`, `limit`.
+- `figma_bind_variable` — Library variable'ini import edip node property'sine baglar. Renkler icin `setBoundVariableForPaint` (fills/strokes), spacing/sizing icin `setBoundVariable` (paddingLeft, itemSpacing, cornerRadius, vb.). Token degisince node otomatik guncellenir.
+- `figma_import_style` — Team library text/paint/effect style'ini import edip node'a uygular. TEXT style: `setTextStyleIdAsync` (font + size + weight). PAINT/EFFECT: `fillStyleId` / `effectStyleId`. Sadece PUBLISHED LIBRARY style'lar — local style'lar icin acik hata mesaji ve cozum yonlendirmesi.
+
+**SKILL Duzeltmeleri:**
+- `figma-canvas-ops/SKILL.md` ve `generate-figma-screen/SKILL.md`: "DS dosyasinda calistir" yaklasimi kaldirildi, `figma.teamLibrary` API zinciri ile hedef dosyada calisma akisi eklendi.
+- `fmcp-project-rules/SKILL.md`: LOCAL vs LIBRARY token ayrimi netlestirildi. `figma_get_styles()` ve `figma_get_variables()` sadece dosya ici degerleri donduruyor — kutuphane token'lari icin yeni `figma_get_library_variables` araci kullanilmali.
+- Font fallback: Kullanici "sen sec" derse once DS kutuphanesi text style'larindan font cikarilir, sonra Inter fallback. Custom font kullanan kutuphanelerde dogru calisir.
+- Cache invalidation: `.claude/libraries/<ds>.md` cache'i 24 saatten eski ise yenilenir, `lastUpdated` alani eklendi.
+
+**Tool Description Iyilestirmeleri:**
+- `figma_execute`: FILL ordering, sync API, font loading, setCurrentPageAsync gotcha'lari description'da.
+- `figma_create_text`: DS kullaniyorsan active-ds.md'deki DS fontunu belirt uyarisi (Inter default).
+- `figma_instantiate_component`: Library component destegi + `setProperties` kurali (findAll(TEXT) yerine).
+
+**Etkilenen Dosyalar:**
+- `src/core/plugin-bridge-connector.ts`: `searchLibraryAssets()` metodu + transient retry kosulu
+- `src/core/plugin-bridge-server.ts`: `waitForClient()` + race condition fix
+- `src/local-plugin-only.ts`: 1 bug fix + 1 enrichment + 3 yeni tool + description guncellemeleri
+- `skills/figma-canvas-ops/SKILL.md`, `skills/generate-figma-screen/SKILL.md`, `skills/fmcp-project-rules/SKILL.md`
+
+**Test Edildi:** Ozel bir consumer Figma dosyasi uzerinde Ana-DS kutuphanesi ile uctan uca dogrulandi: `figma_search_assets` 25 variable + 4 lib collection donduruyor, `figma_get_library_variables` 84-100 variable key'iyle donuyor, frame olusturma → `figma_bind_variable` ile `Surface/background level-0` baglama → screenshot dogrulamasi basarili, `_warnings` static analiz hem success hem error path'lerinde calisiyor.
+
+---
+
+## [1.7.29] - 2026-04-13
+
+### Smart Port Auto-Increment — Coexistence Fix
+
+Birden fazla F-MCP bridge instance (Claude Desktop + Claude Code worktree) artik birbirini oldurmuyor. Yeni instance mevcut bridge'in sagligini kontrol eder ve uygun porta otomatik gecer.
+
+**Kor Degisiklik:**
+- `GET /status` endpoint: Client sayisi, uptime, versiyon dondurur — yeni instance'lar saglik kontrolu yapabilir
+- `tryListenWithAutoIncrement()`: Port 5454'ten baslayip 5470'e kadar otomatik deneme
+  - Saglikli bridge (clients > 0) → ATLA, sonraki porta gec
+  - Yeni baslamis bridge (uptime < 30s) → ATLA (race condition onleme)
+  - Stale bridge (0 client, uptime >= 30s) → TAKEOVER (mevcut davranis)
+  - Eski versiyon bridge (/status yok) → ATLA (guvenli taraf)
+  - Baska servis (non-FMCP) → ATLA
+- `probeStatus()`: Mevcut bridge'in client sayisi ve uptime bilgisini sorgular
+- `sendShutdownRequest()`: Callback tabanli shutdown helper
+- `createBridgeHttpServer()`: HTTP server factory — kod tekrari onlendi
+- `setupBridgeOnServer()`: WebSocket/heartbeat setup — kod tekrari onlendi
+
+**figma_get_status Iyilestirmeleri:**
+- `preferredPort`, `autoIncremented` alanlari eklendi
+- `portHint`: Otomatik port gecisi bilgisi gosterir
+
+**figma_plugin_diagnostics Iyilestirmeleri:**
+- `preferredPort`, `actualPort`, `autoIncremented` alanlari eklendi
+
+**tryListenAsync Timeout:**
+- 5000ms → 30000ms (17 port taramasi icin yeterli sure)
+
+**Canli Test Sonuclari:**
+- Port 5454 (Claude Desktop, eski versiyon) → ATLANDI (bilinmeyen saglik)
+- Port 5455 (Claude Code, yeni versiyon) → BAGLANDI, 2 plugin aktif
+- `figma_execute` port 5455 uzerinden basarili (36ms)
+- `GET /status` endpoint: `{"clients":2,"uptime":33,"version":"1.7.29"}` dondu
+- Her iki bridge ayni anda calisir — coexistence dogrulandi
+
+**Plugin UI:** Degisiklik gerekmez — zaten 5454-5470 portlarini tarar (`scanOtherPorts()`).
+
+## [1.7.28] - 2026-04-11
+
+### figma_execute Savunmaci Enrichment Fix
+
+v1.7.27 canli testinde tespit edilen enrichment kaybi duzeltildi. 6/6 test GECTI.
+
+- `categorizeExecuteError()` null-safety: `(message ?? "").toLowerCase()`
+- figma_execute handler'indaki 3 code path'e (success, plugin-error, catch) ic try-catch — `safeToolHandler` dis catch'ine kacan hatalar artik enrichment kaybetmez
+- `.claude-plugin/plugin.json` ve `.cursor-plugin/plugin.json` versiyon senkronizasyonu
+- Canli test sonuclari: errorCategory (SYNTAX/RUNTIME/TIMEOUT), `_metrics` (durationMs, timeoutMs), hint (Turkce cozum onerisi), safeSerialize (`{__figmaNode:true}`)
+
+## [1.7.27] - 2026-04-11
+
+### figma_execute Hatasiz Calisma — Kok Neden Analizi ve Cozum
+
+9 kok neden tespit edildi ve tumu duzeltildi. figma_execute artik hata kategorisi, cozum onerisi ve execution metrikleri donuyor.
+
+**Timeout Zinciri Duzeltmesi (En sik hata kaynagi):**
+- Default timeout 5000ms → 15000ms (tum 3 katman: MCP handler, UI, plugin)
+- Timeout clamping: min 3s, max 120s — asiri kisa/uzun degerler engellenir
+- UI deadline margin 2s → 5s — round-trip icin yeterli sure
+
+**Sonuc Serializasyon Guvenligi:**
+- `safeSerialize()` fonksiyonu: Figma node objeleri → `{id, type, name}`, circular ref korunakli, array >500 truncate
+- WebSocket sessiz catch kaldirild — response kaybi artik `console.error` ile loglanir, `SERIALIZATION_ERROR` mesaji donuyor
+- JSON.stringify basarisiz olursa sessizce yutmak yerine acik hata raporu
+
+**Hata Kategorilendirme:**
+- `categorizeExecuteError()`: TIMEOUT, SYNTAX, RUNTIME, CONNECTION, SERIALIZATION, FONT_NOT_LOADED, VALIDATION
+- `getErrorHint()`: Her kategori icin kullaniciya ozel Turkce cozum onerisi
+- Plugin `success: false` sonuclari da kategorilendiriliyor (onceden sadece throw edilen hatalar icin calisiyor)
+
+**Otomatik Retry:**
+- Connector'da 1 kez retry: sadece transient hatalar (WebSocket disconnect, send_failed)
+- Timeout ve runtime hatalari retry edilmez
+
+**Execution Metrikleri:**
+- Plugin: `executionMs` (kod calisma suresi)
+- MCP handler: `_metrics: { durationMs, timeoutMs }` (toplam sure + timeout limiti)
+- `resultAnalysis`: sonuc tipi, bos/null/undefined uyarilari
+
+**Hook ve Skill:**
+- PreToolUse hook: 6 maddelik kontrol listesi (font, sayfa reset, return formati, timeout, findAll, DS)
+- `PluginExecuteResult` tipi genisletildi: errorCategory, hint, executionMs, resultAnalysis, _metrics
+
+**Savunmaci Enrichment Fix (canli test sonrasi):**
+- `categorizeExecuteError()` null-safety: `(message ?? "").toLowerCase()`
+- figma_execute handler'indaki 3 code path'e (success, plugin-error, catch) ic try-catch eklendi — `safeToolHandler` dis catch'ine kacan hatalar artik enrichment kaybetmez
+- `.claude-plugin/plugin.json` versiyon senkronizasyonu (1.7.25 → 1.7.27)
+- 6/6 canli test GECTI: errorCategory (SYNTAX/RUNTIME/TIMEOUT), _metrics, hint, safeSerialize
+
+## [1.7.26] - 2026-04-11
+
+### Performans ve Stabilite Optimizasyonu
+
+Satirsatir kod taramasi ile tespit edilen 5 kritik bug, 6 performans sorunu ve 6 stabilite riski duzeltildi.
+
+**Bug Duzeltmeleri:**
+- `local-plugin-only.ts`, `plugin-bridge-server.ts` — Versiyon uyumsuzlugu: hardcoded `"1.7.24"` yerine `FMCP_VERSION` sabiti
+- `response-guard.ts` — Agresif truncation ikinci pasi etkisizdi, parametrik `truncate()` ile duzeltildi
+- `local-plugin-only.ts` — `figma_search_assets` dead code: `getAvailableLibraryComponentsAsync` cagirilmiyordu
+- `local-plugin-only.ts` — `figma_watch_console` busy-loop: 120 WebSocket istegi yerine backoff + early exit
+- `f-mcp-plugin/manifest.json` — Trailing comma gecersiz JSON, Figma plugin yuklenemiyordu
+
+**Performans:**
+- `safeToolHandler()` wrapper ile tum tool handler'lara try-catch (30+ handler)
+- `JSON.stringify(x, null, 0)` gereksiz parametreler kaldirildi (25 yer)
+- `ResponseCache` sinifi: read-only tool'lar icin TTL cache (5-10s), LRU eviction (yeni dosya: `src/core/response-cache.ts`)
+- `figma_check_design_parity` tek-pas optimizasyonu (`codeMap.delete` ile cift dongu kaldirildi)
+- Heartbeat `setInterval` -> recursive `setTimeout` (overlap riski yok)
+- Process tree walk async: constructor'daki `execSync` bloklama kaldirildi
+
+**Stabilite:**
+- `closeAuditLog()` eklendi, shutdown handler'da cagirilir (`audit-log.ts`)
+- `getConfig()` ilk load sonrasi cache'ler (`config.ts`)
+- `figma_execute` 50,000 karakter limiti
+- Mutating tool'lar (`create_*`, `update_*`, `delete_*`, `execute`) cache invalidation
+
+**Tip Guvenligi:**
+- `PluginBridgeConnector`: 15+ method `Promise<unknown>` -> tipli return
+- `as any` cast'ler kaldirildi
+- `BridgeResponse` bos result uyari logu
+
+**Skill/Agent:**
+- 6 skill'e standart Hata Yonetimi bolumu eklendi
+- 3 agent'a Hata Kurtarma dokumantasyonu eklendi
+- `validate-fmcp-skills-tools.mjs`: YAML frontmatter ve hata bolumu yapisal kontrolu
+
+## [1.7.23] - 2026-04-11
+
+### Refactor: Local Full + Cloudflare Modları Kaldırıldı
+
+Proje artık yalnızca **plugin-only** modunu destekliyor. CDP debug port (9222), Figma REST API ve Cloudflare Workers modları kaldırıldı. ~15.000+ satır kod temizlendi.
+
+**Kaldırılan:**
+- `src/local.ts` — Full local server (CDP + REST + Puppeteer)
+- `src/index.ts` — Cloudflare Workers entry point
+- `src/browser/` — Tüm browser modülleri (Puppeteer, Cloudflare Browser Rendering)
+- `src/cloud-*.ts` — Cloudflare cloud-specific modüller
+- `src/core/figma-tools.ts` — REST API araç kaydı (3,564 satır)
+- `src/core/figma-desktop-connector.ts` — CDP connector (1,391 satır)
+- `src/core/figma-api.ts`, `console-monitor.ts`, `snippet-injector.ts`, `design-system-manifest.ts`, `figma-reconstruction-spec.ts`
+- `src/core/enrichment/` — Tüm enrichment modülleri
+- `tsconfig.cloudflare.json`, `wrangler.jsonc`, `worker-configuration.d.ts`
+- Bağımlılıklar: `@cloudflare/puppeteer`, `agents`, `puppeteer-core`, `wrangler`
+
+**Güncellenen:**
+- `package.json` — main/types → local-plugin-only, bin sadeleştirildi, 3 runtime + 1 dev bağımlılık kaldırıldı
+- `tsconfig.local.json` — Sadece plugin-only + core
+- `scripts/validate-fmcp-skills-tools.mjs` — Kaynak: sadece local-plugin-only.ts
+- `.github/workflows/ci.yml` — local.ts version check kaldırıldı
+- `KURULUM.md`, `CONTRIBUTING.md`, `f-mcp-plugin/README.md`, `f-mcp-plugin/manifest.json`
+- `.cursor/skills/f-mcp/TOOL_MAPPING.md` — 19 kaldırılan araç temizlendi
+- `src/core/types/index.ts` — Kullanılmayan tipler kaldırıldı
+- `src/core/config.ts` — Browser/console/screenshot config kaldırıldı
+
+**Korunan:** 46 MCP aracı, 19 skill, plugin bridge (WebSocket 5454), audit log
+
+## [1.7.19] - 2026-04-10
+
+### Fix: `figma_create_frame` Otomatik Pozisyonlama
+
+Frame'ler x parametresi verilmeden oluşturulduğunda (0,0)'da üst üste biniyordu. Artık x belirtilmezse `figma.currentPage.children` taranarak mevcut içeriğin sağına +100px boşlukla otomatik konumlandırma yapılır.
+
+- `x` parametresi opsiyonel, default değer kaldırıldı — verilmezse auto-position
+- `parentId` kullanıldığında veya explicit x verildiğinde eski davranış korunur
+- Response'a `x` ve `y` bilgisi eklendi
+
+## [1.7.18] - 2026-04-10
+
+### Fix: P3.6 MCP Bridge Araç Sorunları Düzeltmesi
+
+Canlı Figma testi sırasında tespit edilen 4 araç sorunu düzeltildi. Plugin kodu + sunucu tarafı + skill dokümantasyonu güncellendi.
+
+**C1. `figma_setup_design_tokens` mode name → mode ID mapping** (`f-mcp-plugin/code.js`)
+- Mode name'leri (`"Light"`, `"Dark"`) mode ID'ye çeviren `modeNameToId` haritası eklendi
+- İlk mod `renameMode()` ile kullanıcının istediği isme yeniden adlandırılıyor ("Mode 1" → "Light")
+- COLOR tipi token'lar için `hexToFigmaRGB()` dönüşümü eklendi
+- Geriye uyumlu: ham mode ID geçilirse de çalışır (`modeNameToId[mid] || mid`)
+
+**C2. ALL_FILLS scope çakışma doğrulaması** (`f-mcp-plugin/code.js` + `src/core/plugin-bridge-connector.ts`)
+- Plugin tarafı: scope atamadan önce ALL_FILLS mutual exclusion kontrolü
+- Sunucu tarafı: `createVariable()` metoduna erken doğrulama (defense in depth)
+- Net hata mesajı: "Scope conflict: ALL_FILLS cannot be combined with..."
+
+**C3. FigJam `shapeWithText` font dokümantasyonu** (2 skill dosyası)
+- `figma-canvas-ops/SKILL.md` Kural 8'e FigJam özel durumu eklendi
+- `figjam-diagram-builder/SKILL.md`'ye FigJam Font Kuralı bölümü eklendi
+- Kural: varsayılan font "Inter Medium" (Regular DEĞİL)
+
+**C4. FigJam timeout limiti dokümantasyonu** (2 skill dosyası)
+- `figma-canvas-ops/SKILL.md` Kural 5'e timeout yapılandırması eklendi
+- `figjam-diagram-builder/SKILL.md` Common Issues'a timeout bölümü eklendi
+- Güvenli limitler: 1-6 node → 5sn | 7-12 → 10sn | 13+ → böl veya 15-30sn
+
+**Canlı Figma Doğrulama:** Tüm düzeltmeler Skill Test dosyasında birebir test edildi ve PASS aldı.
+
+## [1.7.17] - 2026-04-08
+
+### Skill: P3.5 Hata Düzeltmeleri + Dış Kaynak İyileştirmeleri + Canlı Figma Testi
+
+19 F-MCP skill'i canlı Figma dosyasında satır satır test edildi. Tespit edilen 10 hata düzeltmesi (A1-A10) + 12 iyileştirme (B1-B12) uygulandı. Test sonuçları: **18 PASS, 1 PARTIAL, 0 SKIP**.
+
+**Hata düzeltmeleri (A1-A10):**
+- **A1** `ai-handoff-export`: Duplike Step 6 numaralama düzeltildi (6→10 kaydırma + cross-ref güncellemesi)
+- **A2** `figma-a11y-audit`: "Salt okunur" iddiası → "Okuma + Yazma" (Step 7 annotation oluşturuyor)
+- **A3** `figma-a11y-audit`: `h1Count <= 2` → `<= 1` (kural "max 1 H1")
+- **A4** `figma-a11y-audit`: Body text filtresi mantık hatası düzeltildi (`>= 12 && < 14`)
+- **A5** `figma-screen-analyzer`: Duplike `figma_get_design_context` çağrısı silindi
+- **A7** `figma-a11y-audit`: WCAG versiyon tutarlılığı (2.1 → 2.1/2.2)
+- **A8** `component-documentation`: Compact formatta Copy Spec eksikliği belirtildi
+- **A9** `generate-figma-library`: Faz 1 çıkış kriteri STRING/FLOAT scope ayrımı
+- **A10** `SKILL_INDEX.md`: DesignOps akışına `ux-copy-guidance` eklendi
+
+**İyileştirmeler (B1-B12):**
+- **B1** `audit-figma-design-system`: CI ortam tespiti (JSON default)
+- **B2** `apply-figma-design-system`: İki giriş modu (`review-then-apply` + `apply-known-scope`)
+- **B3** `apply-figma-design-system`: %80 uyum eşiği kapısı
+- **B4** `fix-figma-design-system-finding`: 3 girdi formatı otomatik algılama
+- **B5** `generate-figma-screen`: Loading state karar ağacı (skeleton/spinner/progress)
+- **B7** `generate-figma-library`: 60-30-10 renk kuralı (palette + kullanım rehberi)
+- **B8** `figma-a11y-audit`: Gesture a11y kontrolleri (7a)
+- **B10** `audit-figma-design-system`: Nielsen 10 sezgisel (`--heuristic` flag)
+- **B11** `component-documentation`: State machine geçiş diyagramı (Mermaid)
+- **B12** `implement-design`: Gesture platform mapping tablosu (iOS/Android/Web)
+
+**Canlı Figma Testi (feedback için):**
+- Test dosyası: Figma Design (`https://www.figma.com/design/<TEST_FILE_KEY>`) — 20 sayfa, her skill için görsel doğrulama
+- FigJam testi: FigJam test board (`https://www.figma.com/board/<TEST_BOARD_KEY>`) — `figjam-diagram-builder` swimlane testi
+- 6/7 bug gerçek Figma dosyasında düzeltildi (Button touch target, placeholder kontrast, variable bağlama, Türkçe karakter)
+
+**Versiyon tutarlılığı düzeltmesi:**
+- `.cursor-plugin/plugin.json`: 1.7.14 → 1.7.17 (v1.7.15/v1.7.16'da atlanmıştı)
+- `KURULUM.md`: 1.7.14 → 1.7.17 (v1.7.15/v1.7.16'da atlanmıştı)
+
+**P3.6 plan (sonraki sürümde):** 4 araç sorunu FUTURE.md'de plan halinde — `figma_setup_design_tokens` mode name mapping, `ALL_FILLS` scope validation, FigJam `shapeWithText` font dokümantasyonu, FigJam timeout limiti. Plugin kodu bu sürümde dokunulmadı.
+
+## [1.7.15] - 2026-04-08
+
+### Skill: Anthropic Design Skill Entegrasyonu + Marka Profili + UX Copy
+
+Anthropic built-in design skill'leri (accessibility-review, design-handoff, design-critique, design-system-management, ux-writing, frontend-design) ile F-MCP skill'leri satır satır karşılaştırıldı. Eksik tasarım prensipleri, yapısal çerçeveler, estetik yönlendirme ve kişiselleştirme mekanizmaları entegre edildi.
+
+**Yeni dosyalar:**
+- **ux-copy-guidance/SKILL.md (YENİ):** UX yazarlık rehberi — 5 temel prensip, 6 copy kalıbı (CTA, hata, boş durum, onay, başarı, yükleme), ses/ton rehberi, marka profili kişiselleştirmesi, çok dilli/i18n kuralları, Figma text node entegrasyonu (19. skill)
+- **BRAND_PROFILE_SCHEMA.md (YENİ):** `.fmcp-brand-profile.json` şema tanımı — tüm skill'lerin kişiselleştirilebilmesi için merkezi yapılandırma (ses/ton, tipografi, estetik yön, copy kuralları, i18n)
+
+**Genişletilen skill'ler (10):**
+- **figma-a11y-audit:** WCAG 2.1 AA hızlı referans (12 kriter), yaygın sorunlar listesi (8), test yaklaşımı sırası (5 aşama), Step 5'e WCAG referansı, Step 8'e 3 yeni kontrol (fokus göstergesi, hata ilişkilendirme, UI bileşen kontrastı)
+- **ai-handoff-export:** Handoff prensipleri (4), etkileşim spesifikasyonları, içerik spesifikasyonları, uç durumlar tablosu, erişilebilirlik spesifikasyonları, marka profili entegrasyonu
+- **audit-figma-design-system:** DS eksiksizlik çerçevesi (token kategorileri, bileşen durum kapsamı, pattern katmanı), DS prensipleri, JSON şemasına `dsCompleteness`
+- **figma-screen-analyzer:** İlk İzlenim Analizi (2sn testi), görsel hiyerarşi 4 yeni soru, geri bildirim prensipleri (5), marka profili entegrasyonu
+- **generate-figma-screen:** Tasarım Yönü Belirleme (Step 2.5), tipografi stratejisi, görsel derinlik (Step 5.5), anti-pattern kontrolü, marka profili entegrasyonu
+- **component-documentation:** Durumlar bölümü ve Copy Spec bölümü eklendi (Standard format 8→10 bölüm), marka profili entegrasyonu
+- **implement-design:** Step 7d durum/etkileşim kapsamı kontrolü (6 kontrol), marka profili entegrasyonu
+- **generate-figma-library:** Faz 1'e motion token (1f) ve shadow token (1g), Faz 3'e durum kapsamı kontrolü (3d), marka profili entegrasyonu
+- **design-system-rules:** DS prensipleri (Step 3.5), pattern katmanı kuralları (Step 3.6)
+- **design-drift-detector:** Motion token drift kontrolü (Step 5.5)
+
+**Güncellenen referans dosyalar:**
+- **SKILL_INDEX.md:** Kişiselleştirme bölümü, skill sayısı 18→19, persona akışları güncellenmiş, uçtan uca akış güncellenmiş
+- **FUTURE.md:** P3 tüm maddeler [TAMAMLANDI], sürüm referansları güncellenmiş
+
+## [1.7.14] - 2026-04-07
+
+### Kurulum Deneyimi İyileştirmesi
+
+Kaynak: `fmcp-feedback.md` — terminal bilgisi olmayan kullanıcının kurulum zorluğu feedback'i.
+
+- **`scripts/setup.sh`** eklendi: Node.js kontrolü, build, MCP config otomatik ayarı — tek komutla kurulum
+- **`scripts/setup-npx.sh`** eklendi: NPX ile kurulum — repo indirmeden, config otomatik
+- **`scripts/update.sh`** eklendi: Tek komutla otomatik güncelleme
+- **Plugin UI:** "auto port" → "otomatik bağlantı aktif" mesajı; port input title'ları daha açıklayıcı
+- **README.md** sadeleştirildi: Teknik bilgisi olmayan kullanıcı için net kurulum akışı
+- **ONBOARDING.md** güncellendi: Tek komutluk kurulum referansı
+- **KURULUM.md** güncellendi: Script referansı, sürüm güncelleme
+- **UPDATE.md** güncellendi: Otomatik güncelleme bölümü eklendi
+- **FUTURE.md** güncellendi: Kurulum deneyimi hedefleri (pre-built binary, GUI installer)
+- **TEST_REPORT.md** sürüm güncellendi
+
+## [1.7.13] - 2026-04-07
+
+### Plugin UI: Dark/Light Tema Uyumu ve Font Okunabilirliği
+
+**Kök neden düzeltmesi:**
+- **`@media (prefers-color-scheme: light)` kaldırıldı:** Figma plugin iframe'inde bu media query çalışmıyor. Figma `themeColors: true` ile `<html>` elementine `.figma-light` / `.figma-dark` class ekler — artık resmi Figma tema sistemi kullanılıyor.
+- **`@media` fallback eklendi:** Browser preview ve Figma dışı ortamlarda da light tema çalışır (`:root:not(.figma-dark)` selector ile).
+
+**Renk düzeltmeleri:**
+- **17 CSS custom property tanımlandı:** `--fmcp-bg-subtle`, `--fmcp-text-secondary`, `--fmcp-border-light` vb. Dark tema varsayılan, `.figma-light` ve `@media light` ile override.
+- **Tüm hardcoded `rgba(255,255,255,...)` inline renkler** CSS variable'lara çevrildi — light temada artık okunaklı.
+- **Tüm `color: inherit` ve `color: #fff`** kaldırıldı, tema-uyumlu `var()` fallback'lere çevrildi.
+- **Figma `--figma-color-*` variable fallback'leri** `var(--fmcp-*)` ile değiştirildi — Figma variable inject etmediğinde bile doğru renk.
+- **3 JS dinamik renk** (`updateTokenUI`, `updatePortLabel`) `fmcpVar()` helper ile tema-uyumlu.
+
+**Font okunabilirliği:**
+- **Tüm font boyutları +2px büyütüldü:** body 11→13, label/toggle 10→12, info 9→11, note 8→10, icon 7→9.
+- **Icon boyutları da +2px:** info butonları 13→15px, rate-limit info 11→13px (line-height uyumlu).
+
+**Etkilenen alanlar:** Status bar, Advanced panel, Host/Port input, Port switcher, API Token section, Rate limit bar, Connections panel — tümü dark ve light temada okunaklı.
+
+## [1.7.10] - 2026-04-05
+
+### Doküman: Kapsamlı Güncelleme Rehberi
+
+- **docs/UPDATE.md (YENİ):** NPX cache temizleme, clone güncelleme, Claude Code, Windsurf, Figma plugin güncelleme, sorun giderme, rollback — tüm senaryolar tek rehberde
+- **docs/ONBOARDING.md:** Kırık link düzeltmesi (`README.md#sürüm-ve-güncellemeler` anchoru yoktu), `figma-mcp-bridge-plugin` binary name eklendi
+- **README.md:** Dokümanlar tablosuna UPDATE.md linki, sürüm bilgisi güncellendi
+- **FUTURE.md:** Sürüm referansları güncellendi
+- **.cursor-plugin/plugin.json:** Sürüm güncellendi
+
+## [1.7.9] - 2026-04-05
+
+### Türkçe Karakter Düzeltmesi (Kapsamlı)
+
+**Kök neden düzeltmesi:**
+- **7 skill'e Türkçe Karakter Kuralı eklendi:** generate-figma-screen, generate-figma-library, implement-design, ai-handoff-export, component-documentation, figma-a11y-audit, figma-screen-analyzer. Tüm Türkçe metin üretiminde doğru Unicode karakter kullanımı artık zorunlu.
+
+**Skill iç düzeltmeleri:**
+- **component-documentation/SKILL.md:** Dosyanın tamamı (~52 satır) ASCII Türkçe → doğru Unicode'a dönüştürüldü
+- **generate-figma-library/SKILL.md:** Satır 166-425 arası Kritik Kurallar bölümü (~35 satır) düzeltildi
+
+**Test output dosyaları:**
+- **HANDOFF.md:** ~37 düzeltme (Geliştirici → Geliştirici, Şifre, Bileşen, Erişebilirlik vb.)
+- **LoginScreen.tsx:** 2 düzeltme ("Sifre" → "Şifre")
+- **LoginView.swift:** 3 düzeltme ("Sifre" → "Şifre", "Hesabiniz" → "Hesabınız")
+- **LoginScreen.kt:** 2 düzeltme ("Sifre" → "Şifre", "Hesabiniz" → "Hesabınız")
+
+**Figma tasarım dosyası:**
+- 48+ text node ve frame ismi düzeltildi (A11y Annotations panel, component documentation frame dahil)
+- İteratif doğrulama döngüsü: 3 tur tarama ile 327 text node'da 0 kalan hata
+
+**Dokümantasyon:**
+- TEST_REPORT.md, FUTURE.md, CHANGELOG.md — tüm ASCII Türkçe düzeltildi
+
+**Yanlış pozitif koruması:** "Şifremi unuttum" (6 instance korundu), kod identifier'ları ve token isimleri değişmedi.
+
+## [1.7.8] - 2026-04-05
+
+### Fix
+- **CI version consistency:** Kaynak dosyalardaki (local.ts, local-plugin-only.ts, plugin-bridge-server.ts) versiyon stringleri package.json ile senkronize edildi. CI "Version consistency check" artık başarılı.
+
+## [1.7.6] - 2026-04-05
+
+### component-documentation Skill (YENİ — 18. skill)
+
+- **Format seçimi zorunlu:** Standard (~2400px) ve Compact (~1300px) seçenekleri kullanıcıya sunulur, onay olmadan frame oluşturulmaz
+- **Görsel Do/Dont örnekleri:** Gerçek component instance'larıyla doğru/yanlış çift kartlar (hiyerarşi, etiket, variant kullanımı)
+- **Endüstri standartları referansı:** `reference_industry_design_standards.md` hafıza dosyası (14 bölüm: M3, HIG, WCAG 2.2, shadcn/ui, Tailwind, Radix, Lucide, DTCG)
+- **Yıllık güncelleme:** Standart kontrolü 1 yıldan eskiyse kullanıcıya güncelleme önerisi (9 kaynak)
+- **SKILL_INDEX.md:** 17→18 skill, "Dokümantasyon" kategorisi eklendi
+
+### generate-figma-library Skill (Zenginleştirme)
+
+- **Token bağlama tablosu:** fill, text fill, stroke, strokeWeight, radius, padding, gap, minHeight, fontSize — tüm değerlerin variable'a bağlı olması zorunlu
+- **Text hizalama kuralı:** Bileşen tipine göre textAlignHorizontal tablosu (Button=CENTER, Input=LEFT vb.)
+- **Bileşen sizing kuralı:** Button/Tag=HUG, Input=FILL — Fixed width butonlarda yazı ortalanmaz
+- **Code only props:** `layoutPositioning = "ABSOLUTE"` zorunlu — auto-layout gap'te boşluk yaratmayı önler
+- **Component set oluşturma:** `figma_arrange_component_set` + sonrasında `figma_execute` ile stroke/auto-layout/rename
+
+### Plugin Bug Fix
+
+- **`figma_arrange_component_set`:** `getNodeById` → `getNodeByIdAsync` düzeltildi (documentAccess: dynamic-page hatası)
+
+### FUTURE.md
+
+- P2: Component documentation skill'inin diğer bileşen tiplerinde testi (Input, Card, Modal, Nav)
+
+## [1.7.4] - 2026-04-04
+
+### Graceful Port Takeover — Oturum Geçişi Sorunu Çözüldü
+
+**Bridge (plugin-bridge-server.ts):**
+- **Graceful shutdown endpoint (`POST /shutdown`):** HTTP server'a `/shutdown` endpoint'i eklendi. Yeni bridge instance'ı eskisine shutdown isteği gönderir, eski bridge gracefully kapanır.
+- **`requestShutdownAndRetry()` metodu (YENİ):** Port meşgulse ve başka bir F-MCP bridge tespit edilirse, otomatik olarak shutdown isteği gönderir + aynı portu devralır. Plugin port değişikliği gerektirmez.
+- **Port stratejisi güncellendi:** "no auto-scanning" → "graceful takeover". Eski oturum kapandığında yeni oturum aynı portu (varsayılan 5454) devralır, plugin otomatik bağlanır.
+- **Eski davranış (kaldırıldı):** Port meşgulse hata verip kullanıcıdan `figma_set_port` çağrısı bekliyordu. Artık otomatik devralma yapıyor.
+
+**Etki:** Claude Code / Cursor'da yeni oturum başlatıldığında eski oturumun bridge'i portu tutuyordu. Kullanıcının plugin'de portu elle değiştirmesi gerekiyordu. Artık yeni bridge eskisini otomatik kapatıp portu devralır.
+
+## [1.7.2] - 2026-04-04
+
+### Kapsamlı Entegrasyon Testi + 11 Skill Güncelleme + Code-Only Props
+
+**Test:**
+- Uçtan uca entegrasyon testi: 46 araç, 17 skill, 11 faz
+- 120 token (Primitives + Primitives Dark + Semantic), 6 ekran (3 boyut x 2 tema), 1 component set (5 variant)
+- 10 dosya üretildi: 3 kod (React/Swift/Kotlin), 5 token (CSS/Tailwind/Swift/Kotlin/JSON), 1 handoff
+- WCAG AA erişebilirlik: tüm renk çiftleri PASS, tüm touch target >= 44px
+
+**Skill düzeltmeleri (9):**
+- `audit/apply-figma-design-system`: figma_take_screenshot → figma_capture_screenshot
+- `ai-handoff-export`: figma_get_component_details → figma_get_component_for_development
+- `implement-design`: componentId → nodeId
+- `figma-screen-analyzer`: DS compliance formülü düzeltildi
+- `ds-impact-analysis`: sayfa limiti 5→20, transitif bağımlılık eklendi
+- `fix-figma-design-system-finding`: 3 remediasyon modu kod örneği
+- `generate-figma-library`: batch hata yönetimi pattern
+
+**Skill zenginleştirmeleri (20):**
+- Token description + code syntax (Web/Android/iOS) zorunlu adımı
+- Semantic Token = Alias zorunlu kuralı
+- Breakpoint / ekran boyut token'ları
+- Dark mode token stratejisi (Pro+ native vs Free workaround)
+- Code-Only Props katmanı (Nathan Curtis yaklaşımı)
+- Responsive boyut presetleri (3 boyut + dark = 6 ekran zorunlu)
+- MinHeight token binding zorunlu adımı
+- A11y annotation frame (başlık hiyerarşisi, form ilişkilendirme, odak sırası, alt text, dinamik içerik)
+- Erişebilirlik-tasarım tutarlılık kontrolü (7 kural)
+- Code-Only Props spec data çıkarma (handoff)
+
+**FUTURE.md eklemeleri:**
+- P0: Figma Make entegrasyonu + canlı prototip süreci
+- P0: Figma prototip bağlantıları + animasyonlar
+- P1: Figma Dev Mode entegrasyonu
+
+## [1.7.0] - 2026-04-04 (güncelleme)
+
+### Claude Code Desteği ve Test Raporu (YENİ)
+
+- **README: Claude Code kurulum bölümü eklendi.** `.mcp.json` dosyası ile NPX tabanlı config. `~/.claude/settings.json`'in MCP için çalışmadığına dair uyarı notu.
+- **`.mcp.json` güncellendi:** Cursor'a özel bash script yerine evrensel NPX config (hem Claude Code hem Cursor ile uyumlu).
+- **`docs/TEST_REPORT.md` (YENİ):** 46 aracın tamamı test edildi (40 PASS, 4 beklenen Figma kısıtı, 2 güvenlik nedeniyle SKIP). Free/Pro/Org/Enterprise plan bazlı yetenek matrisi. Adım adım test rehberi.
+
+## [1.7.0] - 2026-04-03
+
+### Çoklu Port + Otomatik AI Aracı Tespiti (YENİ)
+
+- **Plugin çoklu port bağlantısı:** 5454-5470 arasını periyodik tarar (10s), bulunan tüm bridge'lere sessizce bağlanır.
+- **AI aracı otomatik tespiti:** Bridge parent process'ten (Claude, Cursor, Claude Code, Windsurf) veya `FIGMA_MCP_CLIENT_NAME` env var'dan otomatik tespit. Welcome mesajında `clientName` gönderilir.
+- **Port geçiş UI:** ◀▶ ok tuşlarıyla bağlı portlar arası geçiş. Status bar'da "Ready" + aktif port etiketi.
+- **(i) info paneli:** Tıklanınca bağlı portlar listesi açılır (● aktif ○ diğerleri).
+- **"Otomatik tara" butonu kaldırıldı:** Çoklu port bunu otomatik yapar.
+- **SVG/PNG export düzeltmesi:** `batchExportNodes` handler + result case eklendi (timeout sorunu çözüldü).
+- **Token disabled:** Token girildikten sonra input + süre seçici disabled (sadece sil + yeniden ekle).
+- **Responsive layout:** İçerik taşma önlendi, sabit genişlik sadece yükseklik dinamik.
+- **Plugin max height:** 420→700 (içerik kesilmez).
+
+## [1.6.3] - 2026-04-03
+
+### Dokümantasyon temizliği
+
+- **28→21 aktif doküman:** 10 dosya arşivlendi (OAUTH_SETUP, SELF_HOSTING, DEPLOYMENT_COMPARISON, CLAUDE_DESKTOP_CONFIG, FIGMA_USE, FMCP_AGENT_CANVAS_COMPAT, RECONSTRUCTION_FORMAT, PUBLISH-PLUGIN, DEPENDENCY_LAYERS, RELEASE_NOTES_TEMPLATE + root: SECURITY_FIXES_ANALYSIS, HANDOFF_TEMPLATE)
+- **Kırık link: 0** — tüm referanslar güncellendi veya kaldırıldı
+- **README sadeleştirildi:** Doküman tablosu kullanıcı odaklı, gereksiz satırlar kaldırıldı
+- **TOOLS.md:** Agent Canvas referansları v1.6 araçlarıyla güncellendi
+
+## [1.6.2] - 2026-04-02
+
+### Dokümantasyon düzeltmeleri
+
+- README: 5 kırık archived link düzeltildi, figma_export_nodes eklendi, REST_API_GUIDE + CONTRIBUTING referansları eklendi
+- README: "33 araç" → "46 araç", tekrar eden satırlar kaldırıldı
+- FUTURE.md: 9 tamamlanan P0-P3 maddesi işaretlendi
+- KURULUM.md: versiyon 1.2.0 → 1.6.2
+
+## [1.6.1] - 2026-04-02
+
+### Batch Export (YENİ — 1 tool)
+
+- **`figma_export_nodes`**: SVG/PNG/JPG/PDF batch export (1-50 node). Plugin exportAsync kullanır, REST token gerektirmez. Base64 çıktısı, ölçeklendirilebilir (0.5-4x). SVG vektörel koruma, outline text ve node ID options.
+- **`BATCH_EXPORT_NODES`** plugin handler eklendi (code.js). Promise.all ile paralel export, node başına hata yönetimi.
+- **Connector**: `batchExportNodes()` metodu eklendi.
+- **Tip tanımları**: `PluginExportResult`, `PluginBatchExportPayload` (types/figma.ts).
+
+### Toplam: 46 araç (önceki: 45)
+
+## [1.6.0] - 2026-04-02
+
+### Tasarım Oluşturma Araçları (YENİ — 4 tool)
+
+- **`figma_create_frame`**: Yeni frame oluşturma (x, y, boyut, renk, parentId)
+- **`figma_create_text`**: Yeni metin node'u (font, boyut, renk)
+- **`figma_create_rectangle`**: Dikdörtgen oluşturma (boyut, renk, cornerRadius)
+- **`figma_create_group`**: Mevcut node'ları gruplama
+
+### Kütüphane ve Tanılama (YENİ — 2 tool)
+
+- **`figma_search_assets`**: Takım kütüphanesi variable collection arama (plugin teamLibrary API)
+- **`figma_plugin_diagnostics`**: Plugin sağlık kontrolü (uptime, bellek, bağlantı, port, rate limit)
+
+### Dokümantasyon
+
+- **CONTRIBUTING.md**: Yerel kurulum, test, tool ekleme, versiyon güncelleme rehberi
+- **docs/REST_API_GUIDE.md**: Token kurulumu, örnek çağrılar, hibrit akış, rate limit yönetimi
+- **npm keywords**: design-system, design-tokens, ui-automation, zero-trust, cursor, agent eklendi
+
+### Toplam: 45 araç (önceki: 39)
+
+## [1.5.2] - 2026-04-02
+
+### Test altyapısı
+
+- **36 test:** response-guard.ts (18 test) + figma-url.ts (16 test) + basic (2 test)
+- **CI'a test adımı eklendi:** `npm test` her push/PR'da otomatik çalışır
+- **Coverage config:** Plugin-only modüla odaklı; tam mod dosyaları hariç tutuldu
+- **Test dosyaları:** `tests/core/response-guard.test.ts`, `tests/core/figma-url.test.ts`
+
+## [1.5.1] - 2026-04-02
+
+### TypeScript tip güvenliği
+
+- **Yeni tip dosyası:** `src/core/types/figma.ts` — RGBColor, FigmaVariable, FigmaVariableCollection, FigmaPaintStyle, FigmaTextStyle, FigmaComponent, PluginVariablesPayload, PluginStylesPayload, PluginComponentPayload vb.
+- **Plugin-only `any` azaltma:** 34 → 5 (%85 azalma). Kalan 5: Zod şema (z.any) ve resolvedType cast.
+- **Connector `any` azaltma:** 46 → 1 (%98 azalma). Tüm Promise<any> dönüşleri tipli hale getirildi.
+- **Bridge server `any` azaltma:** 3 → 1 (%67). WebSocket mesaj tipleri iyileştirildi.
+- **Plugin minify geri alındı:** esbuild minify Figma sandbox'ında "Syntax error" oluşturuyordu. Orijinal code.js geri yüklendi.
+
+## [1.5.0] - 2026-04-02
+
+### Plugin optimizasyonu
+
+- **Plugin minify:** `f-mcp-plugin/code.js` esbuild ile minify (101KB→65KB, %37 küçük). `build:plugin` script eklendi; `prepublishOnly` otomatik minify.
+
+### CI/CD güçlendirme
+
+- **TypeScript tip kontrolü:** `tsc --noEmit` CI'a eklendi — derleme hataları artık otomatik yakalanıyor.
+- **Build doğrulama:** `npm run build:local` CI'da çalıştırılır.
+- **Versiyon tutarlılık kontrolü:** CI, `package.json` versiyonunun `src/` dosyalarıyla eşleşip eşleşmediğini otomatik kontrol ediyor.
+- **Güvenlik taraması:** `npm audit` CI'a eklendi.
+
+### Temizlik
+
+- **Archive silindi:** 8.1 MB gereksiz dosya (eski zip, görseller, eski sürüm dosyaları) — git geçmişinde mevcut.
+- **Belgeler arşivlendi:** 6 tekrar eden / eski belge `docs/archived/` klasörüne taşınarak aktif belge sayısı 30→24'e indirildi.
+- **TODO'lar temizlendi:** `enrichment-service.ts` ve `style-resolver.ts`'deki 6 TODO/FIXME notu açıklayıcı yorumlarla değiştirildi. Kaynak kodda sıfır TODO.
+
+## [1.4.4] - 2026-04-02
+
+### Versiyon tutarlılığı (kesin düzeltme)
+
+- Tüm kaynak kod, doküman, config ve dist dosyalarındaki versiyon string'leri 1.4.4 olarak senkronize.
+- npm paketi güncel dist ile yeniden yayınlandı (önceki 1.4.3 npm'de eski dist içerebiliyordu).
+- NPX örnekleri @latest kullanacak şekilde güncellendi.
+
+## [1.4.3] - 2026-04-02 [NOT: npm paketi eski dist içerebilir, 1.4.4 kullanın]
+
+### Versiyon tutarlılığı
+
+- Tüm kaynak kod, doküman ve config dosyalarındaki versiyon referansları senkronize edildi.
+
+## [1.4.2] - 2026-04-02
+
+### Kritik düzeltme
+
+- **dist/browser pakete geri eklendi:** v1.4.1'de tam mod (local.js) `dist/browser/local.js`'i import ediyordu ama dosya paketten çıkarılmıştı → MODULE_NOT_FOUND hatası. `dist/cloudflare/` hariç tutuldu (bu kullanılmıyor).
+
+## [1.4.1] - 2026-04-02 [YANLIŞ — tam mod kırık, 1.4.2 kullanın]
+
+### npm paket optimizasyonu
+
+- **Paket boyutu:** 284 KB → 230 KB (%19 küçük), açık 1.7 MB → 1.2 MB (%30 küçük)
+- **Dosya sayısı:** 128 → 96 (32 gereksiz dosya çıkarıldı)
+- **Çıkarılan:** `dist/cloudflare/` (440 KB), `dist/browser/` (44 KB) — plugin-only modda kullanılmıyordu
+- **Korunan:** `dist/local.js` (tam mod), `dist/core/` (paylaşımlı), `f-mcp-plugin/`
+
+## [1.4.0] - 2026-04-02
+
+### Figma REST API entegrasyonu (YENİ)
+
+- **`figma_set_rest_token`**: Figma REST API token girişi (figd_... formatı). Token doğrulama (/v1/me), 10s timeout.
+- **`figma_rest_api`**: Direkt REST API çağrısı (export, comments, versions, teams). Endpoint-bazlı akıllı kırpma, 429 retry (3 deneme, exponential backoff), rate limit ön kontrolü.
+- **`figma_get_rest_token_status`**: Token durumu, rate limit bilgisi, düşük limit uyarısı.
+- **`figma_clear_rest_token`**: Token temizleme.
+
+### Response Guard — Context koruması
+
+- **`response-guard.ts`**: Paylaşımlı cevap kırpma modülü. AI context penceresi taşmasını önler.
+- **Endpoint-bazlı kırpma**: comments → son 20, versions → son 10, files → ilk 20 sayfa (children stripped).
+- **Boyut limitleri**: 200KB üstü otomatik kırpma. Gerçek test: 237KB → 10KB (comments), 533KB → 1KB (file).
+- **AI bilgilendirme**: Kırpılan cevaplara `_truncated` ve `_responseGuard` metadata eklenir.
+
+### 429 Rate Limit korumaları
+
+- **Otomatik retry**: 429 durumunda 3 deneme, Retry-After header veya exponential backoff (5s→10s→20s), max 45s.
+- **Ön kontrol**: remaining=0 → kısa devre hata; remaining<10 → cevaba uyarı bloğu.
+- **Rate limit broadcast**: Her REST çağrısından sonra güncellenen limitler tüm plugin'lere bildirilir.
+
+### Plugin UI — Token ve limit yönetimi
+
+- **Token girişi**: Advanced panelinde şifrelenmiş input + süre seçici (1/7/30/90 gün).
+- **Kalıcı depolama**: `figma.clientStorage` ile token plugin kapatılıp açılsa bile kalır. Süre dolunca otomatik temizlenir.
+- **Otomatik restore**: Plugin açıldığında → clientStorage → UI + bridge otomatik gönderi.
+- **Rate limit göstergesi**: Kullanım bar'ı (yeşil/sarı/kırmızı), düşük limit uyarısı (%20), kritik uyarı (%5, nabız animasyonu), doldu mesajı.
+- **Token süresi**: Kalan gün sayacı + bitiş tarihi; ≤7 gün sarı uyarı, dolmuş → kırmızı + otomatik silme.
+
+### Kod kalitesi
+
+- **`response-guard.ts`** yeni modül: `estimateTokens()`, `calculateSizeKB()`, `truncateResponse()`, `truncateRestResponse()`.
+- **Port değişiminde token koruma**: `restart()` token'ı save/restore eder.
+- **Token reconnect**: WebSocket yeniden bağlandığında kaydedilmiş token otomatik gönderilir.
+
+## [1.3.2] - 2026-04-02
+
+### Bridge (hata düzeltmeleri)
+
+- **Hafıza sızıntısı düzeltmesi:** `tryListenAsync()` timeout yolunda `_listenResolve` temizlenmiyordu; tekrarlanan port değişikliklerinde bellek şişiyordu.
+- **bridgeVersion:** Plugin welcome mesajında `"1.1.0"` → `"1.3.2"` olarak güncellendi.
+- **Versiyon tutarlılığı:** McpServer version, `.cursor-plugin/plugin.json`, `package-lock.json` hepsi senkronize edildi.
+- **Stale dist temizliği:** Silinen `figma-style-extractor` kaynak dosyasının artık dist/ kopyaları kaldırıldı.
+
+## [1.3.1] - 2026-04-02
+
+### Bridge (hata düzeltmeleri)
+
+- **`restart()` race condition düzeltmesi:** `tryListenSync()` fire-and-forget yaklaşımı yerine async Promise tabanlı `tryListenAsync()` — port bind sonucu kesin olarak beklenir (500ms sabit delay kaldırıldı).
+- **`figma_set_port` concurrent koruma:** Mutex flag ile eşanlı çağrılarda "devam ediyor" hatası; ikinci çağrı önceki tamamlanmadan başlamaz.
+- **`probePort().then()` eksik `.catch()`:** Probe hatalarında `startError` set edilir, sessiz hata önlenir.
+- **`_listenResolve` callback:** Başarılı/başarısız bind sonrası async restart akışını bilgilendirir.
+
+### Versiyon tutarlılığı
+
+- McpServer version: `"1.1.2"` → `"1.3.0"` (`local-plugin-only.ts`, `local.ts`)
+- `.cursor-plugin/plugin.json`: `"1.2.1"` → `"1.3.0"`
+- `package-lock.json` senkronize edildi
+
+### Dokümantasyon
+
+- `docs/TOOLS_FULL_LIST.md`: `figma_set_port` eklendi; araç sayısı 34 → 35
+
+### Temizlik
+
+- **Atıl kod:** `figma-style-extractor.ts` (hiç import edilmiyor) silindi; `extractVariant()` (hiç çağrılmıyor) silindi
+- **Orphan script'ler:** `launch-figma-debug.ps1/.sh`, `launch-figma-with-plugin.sh`, `plugin-ac.py` silindi
+- **Archive duplicate:** `archive/skills-root-duplicate/` silindi (`.cursor/skills/f-mcp/` ile aynı)
+
+## [1.3.0] - 2026-04-02
+
+### Bridge (port yönetimi)
+
+- **`figma_set_port` aracı (YENİ):** Runtime'da WebSocket bridge portunu değiştirme. Port meşgulse AI aracı (Claude/Cursor) `figma_set_port(5456)` çağırarak başka bir porta geçer; Figma plugin'de aynı portu seçince bağlantı kurulur. Aralık: 5454-5470.
+- **Port çatışması artık öldürücü değil:** Port meşgulse `process.exit(1)` yerine MCP stdio sunucusu ayakta kalır ve `figma_get_status` üzerinden hata mesajı döner. Kullanıcı `figma_set_port` ile farklı porta geçebilir.
+- **`figma_get_status` genişledi:** `bridgeListening`, `startError` alanları eklendi; bridge dinlemiyorsa net hata mesajı ve port değiştirme yönlendirmesi.
+- **`PluginBridgeServer` yeni API'ler:** `restart(port)`, `getPort()`, `isListening()`, `getStartError()` metodları eklendi.
+
+### Çoklu AI aracı (aynı anda Claude + Cursor)
+
+- Claude Desktop ve Cursor aynı anda çalıştığında port çatışmasını çözen akış: ilk açılan varsayılan portu (5454) alır, ikinci açılan `figma_set_port` ile farklı porta geçer. Her AI aracı kendi bridge'i üzerinden bağımsız çalışır.
+
+### Bridge (önceki unreleased)
+
+- **Sabit port stratejisi:** Otomatik port taraması (5454-5470 sıralı deneme) kaldırıldı. Bridge artık yapılandırılan porta doğrudan bağlanır; port meşgulse HTTP health-check ile canlı F-MCP / ölü süreç / farklı servis ayırt edilir; ölü port için kısa gecikmeli tek retry.
+- **Graceful shutdown:** `local-plugin-only.ts`'e SIGINT/SIGTERM handler eklendi -- IDE veya Claude kapandığında `bridge.stop()` çağrılarak port anında serbest bırakılır (ölü port sorununun ana düzeltmesi).
+- **probePort edge case:** `FIGMA_BRIDGE_HOST=0.0.0.0` durumunda port probe'u `127.0.0.1` üzerinden yapılır.
+
+### Dokümantasyon
+
+- [docs/MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md): "Tek MCP = tüm pencereler aynı oturum" bölümü, **"Paralel görevler (Claude + Cursor + ikinci hat)"** bölümü (mimari, port tablosu, plugin Advanced uyarısı, Cursor paylaşımlı MCP notu, audit log çakışma notu).
+- [docs/CLAUDE_DESKTOP_CONFIG.md](docs/CLAUDE_DESKTOP_CONFIG.md): çoklu `mcpServers` örneği (5455 + 5470 farklı sunucu adlarıyla).
+- [KURULUM.md](KURULUM.md): Claude config "sık görülen hatalar" özeti.
+- [README.md](README.md): Port çatışması uyarısı güncellemesi.
+
+### Araçlar
+
+- `npm run check-ports` -- [`scripts/check-ports.sh`](scripts/check-ports.sh): 5454-5470 arasında LISTEN durumundaki süreçleri listeler (paralel görev doğrulaması ve sorun giderme için).
+
+### Cursor skills (F-MCP)
+
+- Yeni skill'ler: `audit-figma-design-system`, `fix-figma-design-system-finding`, `apply-figma-design-system` (tuval içi design system audit/fix/apply; F-MCP Bridge araç eşlemesi).
+- Mevcut F-MCP skill'lerine karşılıklı **F-MCP skill koordinasyonu** bölümleri eklendi.
+- Tuval skill'lerinde `figma_get_metadata` kaldırıldı; Bridge ile uyum için `figma_get_file_data` / `figma_get_component` / `figma_get_design_context` eşlemesi; **design-drift-detector** koordinasyonunda tipik sıra (implement - drift) netleştirildi; **audit** içinde zincir performans notları.
+- [.cursor/skills/f-mcp/SKILL_INDEX.md](.cursor/skills/f-mcp/SKILL_INDEX.md): tüm skill'lerin dizini, workspace kökü (FCM) notu, özet akış.
+- `npm run validate:fmcp-skills` -- [`scripts/validate-fmcp-skills-tools.mjs`](scripts/validate-fmcp-skills-tools.mjs): skill `.md` içindeki `figma_*` adlarını `src/local.ts`, `src/local-plugin-only.ts`, `src/core/figma-tools.ts` içindeki `registerTool` birleşimine göre doğrular.
+- GitHub Actions: [`.github/workflows/ci.yml`](.github/workflows/ci.yml) -- `master` / `main` için PR ve push'ta `npm run validate:fmcp-skills` zorunlu.
+
+### Plugin (F-MCP Bridge)
+
+- Gelişmiş panel: **Otomatik tara** düğmesi -- port alanıyla tek porta kilitlenmeyi kaldırıp 5454-5470 taramasını yeniden başlatır.
+- Advanced panel kapatıldığında aynı kilit kalkar (ilk yüklemede çift bağlantı tetiklenmez).
+
+### Süreç (bakımcılar)
+
+- Sonraki sürüm: `CHANGELOG.md` güncelle - `docs/releases/vX.Y.Z-body.md` oluştur - [RELEASE_NOTES_TEMPLATE.md](docs/RELEASE_NOTES_TEMPLATE.md) içindeki `gh release create` / `gh release edit` ile GitHub Release aç veya güncelle.
+
+## [1.2.1] - 2026-04-01
+
+GitHub Release: [v1.2.1](https://github.com/atezer/FMCP/releases/tag/v1.2.1); gövde: [docs/releases/v1.2.1-body.md](docs/releases/v1.2.1-body.md).
+
+### Bridge
+
+- **`figma_search_components`:** Çıktı özetine bileşen **`key`** alanı eklendi; `figma_instantiate_component(componentKey)` akışı ile uyum.
+- **`prepublishOnly`:** `npm publish` öncesi `build:local` + `validate:fmcp-skills` (Worker `build:cloudflare` ayrı; npm paketi bin'leri `dist/local*.js`).
+
+### Dokümantasyon
+
+- **`docs/TOOLS.md`**, **`docs/TOOLS_FULL_LIST.md`:** `dist/local-plugin-only.js` ile parite; `figma_search_assets` / `figma_get_code_connect` / `figma_use` bu build'de kayıtlı değildir notu; `figma_search_components` + `key` açıklaması.
+- **`docs/FMCP_AGENT_CANVAS_COMPAT.md`:** Bölüm 3 güncel envanter / planlanan ayrımı.
+- **`docs/FIGMA_USE_STRUCTURED_INTENT.md`:** `figma_use` taslak; canlı araç `figma_execute` notu.
+
+## [1.2.0] - 2026-03-27
+
+### Dokümantasyon
+
+- Sürüm takibi ve güncelleme adımları: [README.md](README.md#surum-ve-guncellemeler), [KURULUM.md](KURULUM.md#surum-takibi-ve-guncelleme-notlari).
+- Bu changelog dosyası eklendi; GitHub Releases ve npm ile birlikte tek referans olarak kullanılmalıdır.
+- GitHub [Release v1.2.0](https://github.com/atezer/FMCP/releases/tag/v1.2.0); gövde: [docs/releases/v1.2.0-body.md](docs/releases/v1.2.0-body.md). Bakımcı akışı: [docs/RELEASE_NOTES_TEMPLATE.md](docs/RELEASE_NOTES_TEMPLATE.md).
+
+### Bakım ve doğrulama (2026-03)
+
+- [FUTURE.md](FUTURE.md) kod taraması: npm `@atezer/figma-mcp-bridge@1.2.0` doğrulandı; `dist/` ile `docs/TOOLS.md` Agent Canvas üçlüsü uyumsuzluğu not edildi (doküman düzeltmesi S7'de açık).
+- Figma Organization private plugin yayını tamamlandı (FUTURE S5).
+
+### Not
+
+Bu sürüm, npm paketi `@atezer/figma-mcp-bridge@1.2.0` ve depo kökündeki `package.json` ile hizalıdır. Önceki sürümlerin ayrıntılı kaydı bu dosyada başlamaktadır.

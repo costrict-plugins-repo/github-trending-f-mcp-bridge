@@ -1,0 +1,714 @@
+# F-MCP ATezer Bridge — Kapsamlı Test Raporu
+
+**Tarih:** 2026-04-04 (ilk), 2026-04-11 (v1.7.27), 2026-04-13 (v1.7.29 port coexistence), 2026-04-19 (v1.9.8 Code Connect + Orchestrator, v1.9.9-v1.9.11 Prototype Connections)
+**Test Ortamı:** macOS Darwin 25.3.0 (ARM64)
+**Node.js:** v22.14.0
+**FMCP Sürüm:** 1.9.11
+**Figma Planı:** Pro / Enterprise
+**AI Aracı:** Claude Code (Opus 4.6, 1M context) + Claude Desktop
+**Bağlantı:** Plugin Bridge, port 5454 (Claude Desktop) + port 5455 (Claude Code, auto-incremented)
+**Test Türü:** Uçtan uca entegrasyon testi (araç + skill + iş akışı)
+
+---
+
+## 1. Özet
+
+### Test Kapsamı
+| Metrik | Değer |
+|--------|-------|
+| FMCP aracı | 48 (v1.9.8: +2 yeni — figma_get_code_connect, figma_use) |
+| FMCP skill | 18 (9 düzeltildi, 7 zenginleştirildi) |
+| Üretilen token | 120 (3 collection: Primitives 43, Primitives Dark 32, Semantic 45) |
+| Üretilen ekran | 6 (3 boyut x 2 tema) |
+| Üretilen bileşen | 1 component set, 5 variant |
+| Üretilen kod dosyası | 3 (React, SwiftUI, Compose) |
+| Üretilen token dosyası | 5 (CSS, Tailwind, Swift, Kotlin, JSON) |
+| Erişebilirlik | WCAG AA PASS (tüm renk çiftleri) |
+| Gerçek hata | 0 |
+
+### Sonuç Tablosu
+| Kategori | Sayı |
+|----------|------|
+| PASS | 46 |
+| EXPECTED FAIL (Figma kısıtı) | 3 |
+| SKIP (güvenlik) | 2 |
+| GERÇEK HATA | 0 |
+| **TOPLAM** | **50+** |
+
+---
+
+## 2. Test Süreci: Uçtan Uca Entegrasyon
+
+Bu test sadece araçları tek tek değil, **tüm tasarım-geliştirme sürecini** birlikte test eder:
+
+```
+Token Oluşturma → Bileşen Tasarımı → Ekran Yapımı → DS Denetimi → Erişebilirlik
+→ Token Export → Geliştirici Handoff → Kod Üretimi → QA → Etki Analizi
+```
+
+### 2.1 Faz 0: Bağlantı Doğrulama — 6/6 PASS + Port Coexistence 5/5 PASS
+
+| # | Araç | Sonuç |
+|---|------|-------|
+| 1 | `figma_get_status` | PASS — connected, port 5454 |
+| 2 | `figma_list_connected_files` | PASS — 1 dosya |
+| 3 | `figma_plugin_diagnostics` | PASS — uptime, memory, nodeVersion |
+| 4 | `figma_get_file_data` | PASS — 1 sayfa |
+| 5 | `figma_capture_screenshot` | PASS — boş sayfa baseline |
+| 6 | Oturum yeniden bağlantı | PASS — eski oturum kapatıldı, yeni oturum açıldı; bridge port 5454 serbest, plugin otomatik bağlandı (1 client, "Untitled" dosyası) |
+
+#### v1.7.29 Port Coexistence Canli Test (2026-04-13)
+
+| # | Test | Sonuç |
+|---|------|-------|
+| C1 | Auto-increment: Port 5454 dolu → 5455'e gec | PASS — `autoIncremented: true`, `preferredPort: 5454`, `actualPort: 5455` |
+| C2 | Coexistence: Claude Desktop (5454) + Claude Code (5455) ayni anda | PASS — her iki bridge ayni anda calisiyor, birbirini oldurmuyor |
+| C3 | `GET /status` endpoint | PASS — `{"clients":2,"uptime":33,"version":"1.7.28"}` (yeni versiyon: 1.7.29) |
+| C4 | `figma_execute` port 5455 uzerinden | PASS — 36ms, Ana-DS Mobil dosyasi, 16 child node |
+| C5 | Eski versiyon uyumluluk: /status yok → ATLA | PASS — port 5454'teki eski bridge oldurulmedi, `unknown health` logu |
+
+### 2.2 Faz 1: Token & DS Kütüphanesi — 14/14 PASS + 1 EXPECTED FAIL
+
+120 token oluşturuldu (Primitives 43 + Primitives Dark 32 + Semantic 45):
+
+| # | Araç | İşlem | Sonuç |
+|---|------|-------|-------|
+| 6 | `setup_design_tokens` | 16 FLOAT primitive | PASS |
+| 7 | `figma_execute` | 14 COLOR primitive | PASS |
+| 8 | `create_variable_collection` | Semantic collection | PASS |
+| 9 | `rename_mode` | "Mode 1" → "Light" | PASS |
+| 10 | `figma_execute` | 23 semantic COLOR alias | PASS |
+| 11 | `figma_execute` | 14 semantic FLOAT alias | PASS |
+| 12 | `figma_execute` | 120 scope atama | PASS |
+| 13 | `figma_execute` | 120 description ekleme | PASS |
+| 14 | `figma_execute` | 120 x 3 platform code syntax (360 kayıt) | PASS |
+| 15 | `create_variable` | test/temp-token | PASS |
+| 16 | `rename_variable` | → test/renamed-token | PASS |
+| 17 | `update_variable` | value: 42 | PASS |
+| 18 | `batch_update_variables` | value: 99 | PASS |
+| 19 | `add_mode` | "Dark" mode ekleme | EXPECTED FAIL (Free plan 1 mode) |
+| 20 | `delete_variable` | temp token silindi | PASS |
+| 21 | `get_token_browser` | 120 token doğrulandı | PASS |
+| 22 | `refresh_variables` | Güncel değerler | PASS |
+| 23 | `delete_variable_collection` | Eski test collection temizliği | PASS |
+
+**Ek:** 19 breakpoint token (screen sizes + padding), 2 touch target token, Primitives Dark (32 token)
+
+### 2.3 Faz 2: Button Bileşeni — 12/12 PASS + 3 EXPECTED FAIL
+
+5 varyantlı, auto-layout, responsive, erişilebilir Button component set:
+
+| # | Araç | İşlem | Sonuç |
+|---|------|-------|-------|
+| 24 | `figma_execute` | Primary component (auto-layout + 9 variable binding) | PASS |
+| 25 | `figma_execute` | 4 variant + combineAsVariants → "Button" set | PASS |
+| 26 | `figma_execute` | Component property (label TEXT) bağlama | PASS |
+| 27 | `set_description` | WCAG AA component açıklaması | PASS |
+| 28 | `search_components` | "Button" bulundu | PASS |
+| 29 | `get_component` | Primary variant metadata | PASS |
+| 30 | `get_component_image` | 2510 byte PNG | PASS |
+| 31 | `get_component_for_development` | Metadata + screenshot | PASS |
+| 32 | `arrange_component_set` | combineAsVariants + sonrasında figma_execute ile layout düzeltme | PASS (v1.7.6 fix) |
+| 33 | `instantiate_component` | Local component — not found | EXPECTED FAIL |
+| 34 | `set_instance_properties` | dynamic-page hatası | EXPECTED FAIL |
+| 35 | `figma_execute` | Instance + property set (workaround) | PASS |
+| 36 | `figma_execute` | Code-only props katmanı (a11y, role, aria-disabled, tabIndex) | PASS |
+| 37 | `capture_screenshot` | Component set doğrulama | PASS |
+
+### 2.4 Faz 3: Mobil Login Ekranı — 11/11 PASS
+
+390x846 (iPhone 14) responsive ekran, tüm elemanlar tokenlarla bağlı:
+
+| # | Araç | İşlem | Sonuç |
+|---|------|-------|-------|
+| 38 | `figma_execute` | Ana frame (auto-layout VERTICAL, token-bound padding) | PASS |
+| 39 | `figma_execute` | Logo Area (ellipse + text) | PASS |
+| 40 | `figma_execute` | Headings (H1 + H2) | PASS |
+| 41 | `figma_execute` | E-posta input (auto-layout, 48px min, 8 binding) | PASS |
+| 42 | `figma_execute` | Şifre input | PASS |
+| 43 | `figma_execute` | Primary Button instance ("Giriş Yap", FILL) | PASS |
+| 44 | `figma_execute` | "Şifremi unuttum" link | PASS |
+| 45 | `figma_execute` | Divider ("veya" + çizgiler) | PASS |
+| 46 | `figma_execute` | Secondary Button instance ("Google ile Giriş Yap") | PASS |
+| 47 | `figma_execute` | Register Link | PASS |
+| 48 | `capture_screenshot` | Ekran doğrulama (21KB PNG) | PASS |
+
+### 2.5 Responsive + Dark Mode — 6 Ekran
+
+| Ekran | Boyut | Tema | Width Token | MinHeight Token |
+|-------|-------|------|------------|----------------|
+| Login / Mobile | 390x846 | Light | screen/mobile-width | screen/mobile-height |
+| Login / Mobile / Dark | 390x846 | Dark | screen/mobile-width | screen/mobile-height |
+| Login / Tablet | 768x1024 | Light | screen/tablet-width | screen/tablet-height |
+| Login / Tablet / Dark | 768x1024 | Dark | screen/tablet-width | screen/tablet-height |
+| Login / Web | 1440x900 | Light | screen/web-width | screen/web-height |
+| Login / Web / Dark | 1440x900 | Dark | screen/web-width | screen/web-height |
+
+Tüm ekranların width, minHeight ve padding değerleri variable'lara bağlı (hard-coded değil).
+
+### 2.6 Faz 4: DS Denetimi — 4/4 PASS
+
+| # | Test | Sonuç |
+|---|------|-------|
+| 49 | `get_design_system_summary` (120 token, 1 comp set) | PASS |
+| 50 | Hard-coded renk kontrolü (0 bulgu) | PASS |
+| 51 | İsimlendirme kontrolü (0 varsayılan isim) | PASS |
+| 52 | Instance-component uyumu (2 instance, 0 orphan) | PASS |
+
+### 2.7 Faz 5: Bulgu Düzeltme — SKIP (bulgu yok)
+
+### 2.8 Faz 6: Erişebilirlik — 13/13 PASS
+
+| # | Test | Değer | Sonuç |
+|---|------|-------|-------|
+| 53 | Primary (white/blue600) | 5.17:1 | PASS (AA) |
+| 54 | Secondary (gray900/gray100) | 16.13:1 | PASS (AA+AAA) |
+| 55 | Outline/Ghost (blue600/white) | 5.17:1 | PASS (AA) |
+| 56 | Disabled (gray500/gray100) | 4.39:1 | EXEMPT (WCAG 1.4.3) |
+| 57 | Heading (gray900/white) | 17.74:1 | PASS (AAA) |
+| 58 | Subtitle/Placeholder | 4.83:1 | PASS (AA) |
+| 59 | Touch target — butonlar | >= 44px | PASS |
+| 60 | Touch target — inputlar | >= 48px | PASS |
+| 61 | Font boyutu — 9 text node | >= 14px | PASS |
+| 62 | A11y Annotations paneli (7 bölüm) | oluşturuldu | PASS |
+| 63 | Tutarlılık kontrolü (7 kural) | 7/7 | PASS |
+
+### 2.9 Faz 7: Token Export — 7/7 PASS
+
+| # | Test | Dosya | Sonuç |
+|---|------|-------|-------|
+| 64 | `get_variables` (full) | 120 token | PASS |
+| 65 | CSS Custom Properties | tokens.css | PASS |
+| 66 | Tailwind config | tailwind.tokens.js | PASS |
+| 67 | Swift (iOS) | DesignTokens.swift | PASS |
+| 68 | Kotlin (Android) | DesignTokens.kt | PASS |
+| 69 | W3C Design Tokens JSON | tokens.json | PASS |
+| 70 | `check_design_parity` (15/15 eşleşme) | 0 divergent | PASS |
+
+### 2.10 Faz 8: Geliştirici Handoff — PASS
+
+| # | Test | Sonuç |
+|---|------|-------|
+| 71 | `get_design_context` (full, depth=2, layout+visual+typography) | PASS |
+| 72 | HANDOFF.md oluşturma | PASS |
+
+### 2.11 Faz 9: Kod Üretimi — 3/3 PASS (doğrulanmış)
+
+| # | Platform | Dosya | Doğrulama |
+|---|----------|-------|-----------|
+| 73 | React + Tailwind | LoginScreen.tsx | 35 CSS var ref → 0 eksik, Türkçe düzeltildi |
+| 74 | SwiftUI | LoginView.swift | Token ref doğru, Türkçe düzeltildi |
+| 75 | Jetpack Compose | LoginScreen.kt | BorderStroke düzeltildi, Türkçe düzeltildi |
+
+**Kod doğrulama detayı:**
+- TSX ↔ CSS çapraz kontrol: 35/35 token referansı eşleşiyor, 0 eksik
+- Swift ↔ DesignTokens çapraz kontrol: Tüm enum/struct referansları doğru
+- Kotlin: `ButtonStroke` → `BorderStroke` hatası bulundu ve düzeltildi (halüsinasyon önlendi)
+- 3 dosyada 12 Türkçe karakter düzeltmesi (Hoş→Hoş, Giriş→Giriş vb.)
+
+### 2.14 Faz 12: Türkçe Karakter Düzeltmesi (v1.7.9) — PASS
+
+Tüm katmanlarda Türkçe özel karakter (ş, ı, ö, ü, ç, ğ, İ, Ş, Ç, Ğ, Ö, Ü) düzeltmesi:
+
+| # | Katman | Kapsam | Sonuç |
+|---|--------|--------|-------|
+| 83 | Skill kuralları | 7 skill'e Türkçe Karakter Kuralı eklendi | PASS |
+| 84 | component-documentation | ~52 satır ASCII→Unicode | PASS |
+| 85 | generate-figma-library | ~35 satır ASCII→Unicode | PASS |
+| 86 | Test output (HANDOFF.md) | ~37 düzeltme | PASS |
+| 87 | Test output (tsx/swift/kt) | 7 düzeltme | PASS |
+| 88 | Figma text node'ları | 48+ node (3 iterasyon) | PASS |
+| 89 | Figma frame isimleri | 7 frame | PASS |
+| 90 | Dokümantasyon (3 dosya) | TEST_REPORT, FUTURE, CHANGELOG | PASS |
+
+**Doğrulama yöntemi:** İteratif tarama döngüsü — 327 text node'da 0 kalan hata. Yanlış pozitif koruması: "Şifremi unuttum" (6 instance), kod identifier'ları ve token isimleri korundu.
+
+### 2.12 Faz 10: QA — 6/6 PASS
+
+| # | Test | Sonuç |
+|---|------|-------|
+| 76 | Token parity (11 matching Light) | PASS |
+| 77 | Token parity (7 divergent — Dark karışma) | EXPECTED (Free plan) |
+| 78 | Screen analyzer (DS compliance 75%) | PASS |
+| 79 | `get_console_logs` + `clear_console` + `watch_console` | PASS |
+| 80 | `export_nodes` (SVG, 24KB Button) | PASS |
+| 81 | `rest_api` (/v1/me → Abdussamed Tezer) | PASS |
+
+### 2.13 Faz 11: Etki Analizi — PASS
+
+| # | Test | Sonuç |
+|---|------|-------|
+| 82 | `color/blue/600` etki analizi | 5 dependent, 23 node, risk HIGH (38/50) |
+
+---
+
+## 3. Skill Düzeltmeleri ve Zenginleştirmeleri
+
+### 3.1 Hata Düzeltmeleri (9 düzeltme, 8 skill)
+
+| # | Skill | Düzeltme |
+|---|-------|----------|
+| 1 | `audit-figma-design-system` | `figma_take_screenshot` → `figma_capture_screenshot` |
+| 2 | `apply-figma-design-system` | `figma_take_screenshot` → `figma_capture_screenshot` |
+| 3 | `ai-handoff-export` | `figma_get_component_details` → `figma_get_component_for_development` |
+| 4 | `implement-design` | `componentId` → `nodeId` (2 yer) |
+| 5 | `figma-screen-analyzer` | DS compliance formülü düzeltildi |
+| 6 | `ds-impact-analysis` | Sayfa limiti 5→20 |
+| 7 | `ds-impact-analysis` | Transitif bağımlılık (recursive alias chain) |
+| 8 | `fix-figma-design-system-finding` | 3 remediasyon modu kod örneği |
+| 9 | `generate-figma-library` | Batch hata yönetimi pattern |
+
+### 3.2 Zenginleştirmeler (20 ekleme, 7 skill)
+
+| # | Skill | Eklenen |
+|---|-------|---------|
+| 1 | `generate-figma-library` | Token description zorunlu adımı |
+| 2 | `generate-figma-library` | Token code syntax zorunlu adımı (Web/Android/iOS) |
+| 3 | `generate-figma-library` | "Semantic Token = Alias" zorunlu kuralı |
+| 4 | `generate-figma-library` | Breakpoint / ekran boyut token'ları |
+| 5 | `generate-figma-library` | Dark mode token stratejisi (Pro+ vs Free) |
+| 6 | `generate-figma-library` | Code-Only Props katmanı (Nathan Curtis yaklaşımı) |
+| 7 | `generate-figma-screen` | Responsive boyut presetleri (3 boyut zorunlu) |
+| 8 | `generate-figma-screen` | Dark mode zorunlu adımı (6 ekran matrisi) |
+| 9 | `generate-figma-screen` | Breakpoint token binding zorunlu adımı |
+| 10 | `generate-figma-screen` | Min height token binding zorunlu adımı |
+| 11 | `figma-a11y-audit` | Annotation frame (sarı panel) oluşturma |
+| 12 | `figma-a11y-audit` | Başlık hiyerarşisi notları (H1/H2/H3) |
+| 13 | `figma-a11y-audit` | Form alan-etiket ilişkilendirme notları |
+| 14 | `figma-a11y-audit` | Odak sırası (focus order) notları |
+| 15 | `figma-a11y-audit` | Görsel alt text / dekoratif işaretleme |
+| 16 | `figma-a11y-audit` | Modal/dialog ve dinamik içerik notları |
+| 17 | `figma-a11y-audit` | Erişebilirlik-tasarım tutarlılık kontrolü (7 kural) |
+| 18 | `ai-handoff-export` | Code-Only Props okuma ve spec data çıkarma |
+| 19 | `design-token-pipeline` | Code Syntax okuma ve platform eşleme |
+| 20 | `ai-handoff-export` | `figma_take_screenshot` → `figma_capture_screenshot` (ek temizlik) |
+
+---
+
+## 4. Figma Plan Bazlı Yetenek Matrisi
+
+| Araç / Özellik | Free | Pro | Org | Enterprise |
+|---------------|:----:|:---:|:---:|:----------:|
+| Plugin bridge bağlantısı | + | + | + | + |
+| Dosya okuma / tasarım bağlamı | + | + | + | + |
+| Frame/Text/Rectangle oluşturma | + | + | + | + |
+| Component arama / inceleme | + | + | + | + |
+| Variable CRUD (plugin) | + | + | + | + |
+| Variable çoklu mode | - | + | + | + |
+| Toplu variable işlemleri | + | + | + | + |
+| Design token kurulumu | + | + | + | + |
+| Design-code parity kontrolü | + | + | + | + |
+| Screenshot / Export (PNG, SVG, JPG, PDF) | + | + | + | + |
+| JS kodu çalıştırma | + | + | + | + |
+| Konsol izleme | + | + | + | + |
+| Port değiştirme | + | + | + | + |
+| REST API (yorumlar, versiyonlar) | + | + | + | + |
+| REST API (variables) | - | - | - | + |
+| Published library bileşenleri | - | ~ | + | + |
+| Instance oluşturma (library) | - | ~ | + | + |
+| Component set (variant) oluşturma | ~ | ~ | ~ | ~ |
+| Private plugin dağıtımı | - | - | + | + |
+| Audit logging | + | + | + | + |
+| Air-gap deployment | + | + | + | + |
+
+> `+` = Desteklenir, `-` = Desteklenmez, `~` = Kısıtlı/koşullu
+
+---
+
+## 5. Üretilen Dosyalar
+
+| Dosya | Tip | Açıklama |
+|-------|-----|----------|
+| `test-output/tokens.css` | CSS Custom Properties | 91 satır, semantic + primitive |
+| `test-output/tailwind.tokens.js` | Tailwind config | Theme colors, spacing, radius, fontSize |
+| `test-output/DesignTokens.swift` | Swift (iOS) | Color, Spacing, Radius, FontSize, Semantic enums |
+| `test-output/DesignTokens.kt` | Kotlin (Android) | AppColors, Spacing, AppRadius objects |
+| `test-output/tokens.json` | W3C Design Tokens | Cross-platform JSON schema |
+| `test-output/LoginScreen.tsx` | React + Tailwind | WCAG AA, ARIA labels, CSS var() tokens |
+| `test-output/LoginView.swift` | SwiftUI | VoiceOver labels, token imports |
+| `test-output/LoginScreen.kt` | Jetpack Compose | TalkBack semantics, Material3 |
+| `test-output/HANDOFF.md` | Geliştirici handoff | Ekran yapısı, token ref, a11y notları |
+| `docs/TEST_REPORT.md` | Bu dosya | Kapsamlı test raporu |
+
+### 2.15 Faz 13: v1.7.27 figma_execute Canli Test (2026-04-11) — 6/6 PASS
+
+figma_execute enrichment (errorCategory, _metrics, hint) canli dogrulama:
+
+| # | Test | errorCategory | _metrics | hint | Sonuc |
+|---|------|--------------|----------|------|-------|
+| 91 | `figma_get_status` | — | — | — | PASS — 8 client, port 5456 |
+| 92 | Basarili calisma (`return {ok:true, pages}`) | — | `durationMs:19, timeoutMs:15000` | — | PASS |
+| 93 | Syntax hatasi (`this is not valid {{{`) | SYNTAX | `durationMs:6, timeoutMs:15000` | JavaScript syntax hatasi... | PASS |
+| 94 | Runtime hatasi (`null.name`) | RUNTIME | `durationMs:21, timeoutMs:15000` | Kod calisma hatasi... | PASS |
+| 95 | Timeout (`5s sleep, 3s limit`) | TIMEOUT | `durationMs:3006, timeoutMs:3000` | Islem cok uzun surdu... | PASS |
+| 96 | safeSerialize (`currentPage.children.map(c => c)`) | — | `durationMs:8, timeoutMs:15000` | — | PASS — `{__figmaNode:true}` format |
+
+**Kok neden:** Bridge server sureci (PID 31028) 21 saat once baslatilmis ve enrichment kodunu icermeyen eski dist'i calistiriyordu. Surecin yeniden baslatilmasi ile yeni dist yuklendi ve tum testler gecti.
+
+**Savunmaci iyilestirme:** `categorizeExecuteError` null-safety + figma_execute handler'indaki 3 code path'e (success, plugin-error, catch) ic try-catch eklendi.
+
+---
+
+## 6. Bilinen Kisitlamalar
+
+| # | Kısıt | Etkilenen Araç | Sebep | Çözüm / Workaround |
+|---|-------|---------------|-------|---------------------|
+| 1 | Free planda 1 mode limiti | `add_mode` | Figma Free plan | Pro+ plana yükselt VEYA ayrı Dark collection (workaround) |
+| 2 | dynamic-page API kısıtı | `set_instance_properties` | Plugin manifest | `figma_execute` ile async workaround |
+| 2b | `arrange_component_set` post-fix | v1.7.6'da `getNodeByIdAsync` fix + sonrasında `figma_execute` ile stroke/layout/rename | Çözüldü | 2 adımlı akış: arrange → figma_execute |
+| 3 | Sadece published component | `instantiate_component` | Figma API | `figma_execute` + `createInstance()` |
+| 4 | COLOR hex string | `setup_design_tokens` | COLOR variable RGBA bekler | `figma_execute` ile COLOR oluştur |
+| 5 | REST Variables API | `rest_api` (variables) | Enterprise plan | Plugin bridge (tüm planlarda) |
+| 6 | check_design_parity alias | Alias tokenlar `[object Object]` gösterir | Alias çözümleme yok | Sadece primitive'lerle karşılaştır |
+
+---
+
+## 7. FUTURE.md'ye Eklenen Yol Haritası
+
+Test sırasında tespit edilen iyileştirme ihtiyaçları:
+
+| Öncelik | Konu | Açıklama |
+|---------|------|----------|
+| P0 | Figma Make Entegrasyonu | Onay → Make aktarımı → canlı prototip |
+| P0 | Prototip Bağlantıları | Ekranlar arası navigasyon, animasyonlar, flow |
+| P1 | Figma Dev Mode | Dev status, annotation, measurement araçları |
+| P1 | `figma_create_component` aracı | En sık kullanılan işlem için özel araç |
+| P1 | `figma_set_auto_layout` aracı | Her component için gerekli |
+| P1 | `figma_bind_variable` aracı | Token binding için özel araç |
+| ~~P1~~ | ~~`arrange_component_set` fix~~ | ~~dynamic-page async geçiş~~ — **v1.7.6'da çözüldü** |
+| P2 | Local component instantiate | `instantiate_component` genişletme |
+| P2 | Toplu scope atama aracı | Batch scope setter |
+| P3 | Dahili kontrast oranı aracı | figma_execute yerine özel araç |
+
+---
+
+## 8. Test Rehberi (Nasıl Tekrar Edilir)
+
+### Ön Koşullar
+1. Node.js 18+ kurulu
+2. FMCP kurulu ve çalışır durumda
+3. Figma'da F-MCP plugin açık ve yeşil "Ready"
+4. Boş Figma dosyası
+
+### Adım Adım
+1. **Faz 0:** `figma_get_status` → connected: true
+2. **Faz 1:** `setup_design_tokens` + `figma_execute` ile token sistemi oluştur
+3. **Faz 2:** `figma_execute` ile component oluştur, combineAsVariants, code-only props ekle
+4. **Faz 3:** `figma_execute` ile ekran oluştur, clone → responsive, dark mode
+5. **Faz 4:** `figma_execute` ile DS denetimi (hard-coded, naming, instance)
+6. **Faz 6:** `figma_execute` ile kontrast + touch target + annotation panel
+7. **Faz 7:** `get_variables` → token dosyaları oluştur, `check_design_parity`
+8. **Faz 8:** `get_design_context` → HANDOFF.md oluştur
+9. **Faz 9:** Design context'ten 3 platform kodu üret, çapraz kontrol yap
+10. **Faz 10-11:** QA + etki analizi
+
+Her faz sonrası `capture_screenshot` ile görsel doğrulama yapılmalı.
+
+---
+
+## 9. v1.7.23 Kod Temizliği Doğrulama Raporu
+
+**Tarih:** 2026-04-11
+**Scope:** Local full mode (CDP+REST) ve Cloudflare mode kaldırıldı, sadece plugin-only korundu.
+
+### Silinen Modüller (27 kaynak dosya)
+
+| Kategori | Dosyalar |
+|---|---|
+| Entry Points | local.ts (3,097 satır), index.ts (1,615 satır) |
+| Browser | browser/local.ts, browser/cloudflare.ts, browser/base.ts |
+| Cloud | browser-manager.ts, cloud-cors.ts, cloud-mode-kv.ts, cloud-mode-routes.ts, cloud-relay-session.ts, test-browser.ts |
+| Core | figma-tools.ts (3,564), figma-api.ts, figma-desktop-connector.ts (1,391), console-monitor.ts, snippet-injector.ts, design-system-manifest.ts, figma-reconstruction-spec.ts |
+| Enrichment | enrichment-service.ts, relationship-mapper.ts, style-resolver.ts, index.ts |
+| Types | enriched.ts |
+| Config | tsconfig.cloudflare.json, wrangler.jsonc, worker-configuration.d.ts, run-mcp.sh, auto-launch-figma-plugin.sh |
+
+### Kaldırılan Bağımlılıklar
+
+- @cloudflare/puppeteer, agents, puppeteer-core, wrangler
+
+### Doğrulama Sonuçları
+
+| Test | Sonuç |
+|---|---|
+| TypeScript build (tsc) | PASS — sıfır hata |
+| Jest testleri (36 test) | PASS — 36/36 |
+| Skill validasyon (46 araç) | PASS — 46/46 uyumlu |
+| MCP sunucu başlatma | PASS — WebSocket 5454 dinliyor |
+| npm pack | PASS — temiz paket, gereksiz dosya yok |
+| Plugin bağlantısı | PASS — 6 dosya bağlı, tüm araçlar çalışıyor |
+| Resmi Figma MCP uyumu | PASS — çakışma yok, paralel çalışıyor |
+
+### Kalan Yapı (10 kaynak dosya)
+
+- src/local-plugin-only.ts, src/core/plugin-bridge-server.ts, plugin-bridge-connector.ts, config.ts, logger.ts, figma-url.ts, response-guard.ts, audit-log.ts, types/figma.ts, types/index.ts
+
+### Etki
+
+| Metrik | Önce | Sonra |
+|---|---|---|
+| Kaynak dosya (src/) | 23 | 10 |
+| Runtime bağımlılıklar | 7 | 4 |
+| Entry point | 3 | 1 |
+
+---
+
+## 10. v1.7.26 Performans ve Stabilite Optimizasyonu
+
+**Tarih:** 2026-04-11
+**Scope:** Satirsatir kod taramasi, 5 kritik bug fix, performans optimizasyonu, stabilite iyilestirmeleri, tip guvenligi, skill/agent dokumantasyonu.
+
+### 10.1 Kritik Bug Duzeltmeleri (5 bug)
+
+| # | Bug | Konum | Aciklama |
+|---|-----|-------|----------|
+| 1 | Versiyon uyumsuzlugu | `local-plugin-only.ts:108`, `plugin-bridge-server.ts:421` | `"1.7.24"` hardcoded, `FMCP_VERSION` sabiti import edildi |
+| 2 | response-guard agresif truncation no-op | `response-guard.ts:102-113` | Ikinci pas ayni limitlerle calisiyordu, parametrik `truncate()` ile duzeltildi |
+| 3 | figma_search_assets dead code | `local-plugin-only.ts:1306` | `getAvailableLibraryComponentsAsync` cagirilmiyordu, `typeof` guard eklendi |
+| 4 | figma_watch_console busy-loop | `local-plugin-only.ts:616-634` | 120 WebSocket istegi -> backoff + early exit + watermark dedup |
+| 5 | Manifest trailing comma | `f-mcp-plugin/manifest.json:31` | Gecersiz JSON, Figma plugin yuklenemiyordu |
+
+### 10.2 Performans Optimizasyonlari (6 iyilestirme)
+
+| # | Iyilestirme | Dosya | Aciklama |
+|---|-------------|-------|----------|
+| 1 | `safeToolHandler()` wrapper | `local-plugin-only.ts` | Tum tool handler'lara try-catch |
+| 2 | JSON.stringify temizligi | `local-plugin-only.ts` | 25 yer `null, 0` gereksiz parametre kaldirildi |
+| 3 | TTL response cache | `response-cache.ts` (YENi) | Read-only tool'lar icin 5-10s cache, LRU eviction |
+| 4 | Tek-pas parity check | `local-plugin-only.ts` | codeMap.delete ile cift dongu kaldirildi |
+| 5 | Heartbeat setTimeout | `plugin-bridge-server.ts` | setInterval -> recursive setTimeout (overlap riski yok) |
+| 6 | Async process detection | `plugin-bridge-server.ts` | Constructor'daki execSync bloklama kaldirildi |
+
+### 10.3 Stabilite Iyilestirmeleri (5 iyilestirme)
+
+| # | Iyilestirme | Dosya | Aciklama |
+|---|-------------|-------|----------|
+| 1 | 30+ tool handler try-catch | `local-plugin-only.ts` | Tum handler'lar safeToolHandler ile sarild |
+| 2 | Audit log stream kapatma | `audit-log.ts` | `closeAuditLog()` eklendi, shutdown'da cagirilir |
+| 3 | Config caching | `config.ts` | `getConfig()` ilk load sonrasi cache'ler |
+| 4 | figma_execute kod limiti | `local-plugin-only.ts` | 50,000 karakter ustu reject edilir |
+| 5 | Cache invalidation | `local-plugin-only.ts` | Mutating tool'lar otomatik cache temizler |
+
+### 10.4 Tip Guvenligi (3 iyilestirme)
+
+| # | Iyilestirme | Dosya | Aciklama |
+|---|-------------|-------|----------|
+| 1 | Connector return tipleri | `plugin-bridge-connector.ts` | 15+ method `Promise<unknown>` -> tipli return |
+| 2 | as any kaldirildi | `local-plugin-only.ts`, `plugin-bridge-connector.ts` | Tip guvenli cast'ler |
+| 3 | BridgeResponse validasyonu | `plugin-bridge-server.ts` | Bos result uyari logu eklendi |
+
+### 10.5 Skill/Agent/Validation Iyilestirmeleri
+
+| # | Iyilestirme | Dosya | Aciklama |
+|---|-------------|-------|----------|
+| 1 | 6 skill'e Hata Yonetimi | 6 SKILL.md | Standart hata yonetimi bolumu eklendi |
+| 2 | 3 agent'a Hata Kurtarma | 3 agent .md | Hata kurtarma dokumantasyonu |
+| 3 | Validation script genisletme | `validate-fmcp-skills-tools.mjs` | YAML frontmatter + hata bolumu kontrolu |
+
+### 10.6 Gercek Figma Testi (v1.7.26)
+
+| Test | Sonuc | Detay |
+|------|-------|-------|
+| figma_get_status | PASS | 6 plugin, port 5456 |
+| figma_list_connected_files | PASS | 6 dosya aninda |
+| figma_get_variables (inventory) | PASS | 30 variable, 5 collection |
+| figma_get_variables (summary, buyuk DS) | PASS | 309KB veri, response guard devrede |
+| figma_get_design_system_summary | PASS | 1100 variable, paralel cagri |
+| figma_get_styles | PASS | 2 paint, 36 text, 20 effect style |
+| figma_search_components | PASS | 110+ component |
+| figma_get_design_context | PASS | 52 sayfa, aninda |
+| figma_execute (basarili) | PASS | 21 sayfa, 7 node |
+| figma_execute (hata) | PASS | Hata yakalandi, crash yok |
+| figma_plugin_diagnostics | PASS | 53MB RSS, 22MB heap |
+| figma_check_design_parity | PASS | 1 match, 1 divergent, 28 figma-only |
+| Hata yonetimi (3 gecersiz key) | PASS | Temiz JSON, crash yok |
+| Paralel cagrilar (3 tool) | PASS | Hepsi aninda |
+| Build + 36 test | PASS | 0 hata |
+| Skill validation (46 tool) | PASS | 46/46 uyumlu |
+
+---
+
+## 11. v1.7.27 figma_execute Hatasiz Calisma Optimizasyonu
+
+**Tarih:** 2026-04-11
+**Scope:** figma_execute lifecycle'i 4 katmanda (MCP → connector → bridge → plugin) satirsatir taranmis, 9 kok neden tespit ve cozulmustur.
+
+### 11.1 Kok Nedenler ve Cozumler
+
+| # | Kok Neden | Cozum | Sonuc |
+|---|-----------|-------|-------|
+| RC1 | Default timeout 5000ms yetersiz | 15000ms + clamping (3s-120s) | Premature timeout yok |
+| RC2 | WebSocket kopmasinda retry yok | Connector'da 1x transient retry | Gecici hatalar kurtariliyor |
+| RC4 | Response sessizce kayboluyor | console.error + SERIALIZATION_ERROR | 120s bekleme yok |
+| RC5 | Serialize edilemeyen sonuclar | safeSerialize() fonksiyonu | Figma node/circular ref korunakli |
+| RC6 | Hata kategorisi yok | categorizeExecuteError + getErrorHint | Kullanici cozumu biliyor |
+| RC9 | Buyuk sonuclar JSON.stringify patlatiyor | Array >500 truncate, keys >200 truncate | OOM riski yok |
+
+### 11.2 Gercek Figma Testi (Plugin Reload Sonrasi)
+
+| Test | Sonuc | Detay |
+|------|-------|-------|
+| figma_execute basarili kod | PASS | `executionMs: 1`, `resultAnalysis` donuyor |
+| figma_execute syntax hatasi | PASS | `"Syntax error: Unexpected identifier"` — crash yok |
+| figma_execute runtime hatasi | PASS | `"TypeError: Cannot read properties of null"` — crash yok |
+| figma_execute basarili metrikler | PASS | `pageCount: 21`, `executionMs` gercek sure |
+| Plugin reload sonrasi baglanti | PASS | 7 plugin bagli, Skill test aktif |
+| Build + 36 test | PASS | 0 hata |
+| Skill validation | PASS | 46/46 uyumlu |
+
+### 11.3 Yeni Ozellikler
+
+- **errorCategory**: TIMEOUT, SYNTAX, RUNTIME, CONNECTION, SERIALIZATION, FONT_NOT_LOADED, VALIDATION
+- **hint**: Her hata icin Turkce cozum onerisi
+- **executionMs**: Plugin tarafinda kod calisma suresi (ms)
+- **_metrics**: MCP handler tarafinda `{ durationMs, timeoutMs }`
+- **resultAnalysis**: Bos/null/undefined sonuc uyarilari
+- **safeSerialize**: Figma node → `{id, type, name}`, function → `[function]`, circular ref korunakli
+- **Retry**: Transient WebSocket hatalari icin 1x otomatik tekrar deneme
+
+---
+
+## 12. v1.9.8 Code Connect + Orchestrator Canlı Testi (2026-04-19)
+
+**Scope:** İki yeni MCP aracı (`figma_get_code_connect`, `figma_use`) ve plugin extra-port route simetrisi Claude Desktop üzerinden uçtan uca doğrulandı.
+
+### 12.1 Araç Kayıt Doğrulaması
+
+| # | Kontrol | Sonuç |
+|---|---------|-------|
+| 1 | `grep figma_get_code_connect dist/local-plugin-only.js` | PASS — tool kayıtlı |
+| 2 | `grep figma_use\b dist/local-plugin-only.js` | PASS — tool kayıtlı |
+| 3 | TypeScript build | PASS — sıfır hata |
+| 4 | Jest suite | PASS — 83/83 test |
+| 5 | ui.html simetri (ana port + extra port) | PASS — her iki handler'da `getCodeConnectHints` route var |
+| 6 | Version senkronu (package.json + version.ts + bootstrap-injector + plugin code.js/ui.html) | PASS — 5/5 yer 1.9.8 |
+
+### 12.2 Canlı Test — Claude Desktop + Figma (Brand DS dosyası)
+
+| # | Senaryo | Sonuç |
+|---|---------|-------|
+| L1 | `figma_get_status` sonrası plugin versiyonu | PASS — 1.9.8 raporlandı |
+| L2 | `figma_get_code_connect scanCurrentPage=true maxNodes=20` | PASS — 20 node tarandı, INSTANCE tree döndü |
+| L3 | INSTANCE node için componentKey davranışı | PASS — beklendiği gibi boş (plugin handler sadece COMPONENT/COMPONENT_SET için doldurur) |
+| L4 | `figma_use intent=design_context nodeId="1:234" query="color"` | PASS — 3 alt sonuç (component + codeConnect + tokens), `partial=false` |
+| L5 | Orchestrator INSTANCE → main component resolve | PASS — NavigationTopBar detayları + alt node'lar geldi |
+| L6 | Token filtresi doğruluğu | PASS — 25 renk token'ı (13 semantic + 12 primitive), query uyumlu |
+| L7 | Validation hatası: intent=component ama nodeId yok | PASS — `isError: true`, anlamlı hata mesajı |
+| L8 | MCP server restart sonrası araç listesi | PASS — Claude Desktop iki yeni aracı keşfetti ve çağırdı |
+
+### 12.3 Bilinen Sınırlar (plan kapsam dışı)
+
+- Tam Code Connect kaynak dosya yolları plugin API'den erişilemez — Figma'nın resmi MCP `get_code_connect_map` aracı veya Figma CLI kullanılmalı.
+- INSTANCE node'lar kendi başlarına `documentationLinks` taşımaz; hint için main component'e gidilmeli (`figma_use` otomatik yapar).
+- Variable binding (hangi bileşen hangi token'i tüketiyor) otomatik tespit yok — `boundVariables` için `figma_get_design_context` kullanılmalı.
+
+### 12.4 Gerçek Hata
+
+- **0** (sıfır). Plan'da tespit edilen tek sapma (Explore ajanının "extra port handler'da route var" raporu), planlama aşamasında düzeltildi ve uygulamada doğru işlendi.
+
+---
+
+## 13. v1.9.9 → v1.9.11 Prototype Connections + Animations Canlı Testi (2026-04-19)
+
+**Scope:** 5 yeni MCP aracı + 1 yeni skill (`figma-prototype-flow`) + 4 skill güncellemesi. FUTURE.md P0 "Figma Prototip Bağlantıları + Animasyonlar" kapsamı kapatıldı. İki tur canlı test yapıldı; her turda yeni bir schema bug'ı bulundu ve patch ile çözüldü.
+
+### 13.1 Araç Kayıt Doğrulaması
+
+| # | Kontrol | Sonuç |
+|---|---------|-------|
+| 1 | `figma_create_prototype_connection` tool registered (src:2765) | PASS |
+| 2 | `figma_get_prototype_connections` tool registered (src:2886) | PASS |
+| 3 | `figma_set_flow_starting_point` tool registered (src:2963) | PASS |
+| 4 | `figma_create_interaction` tool registered (src:3010) | PASS |
+| 5 | `figma_set_scroll_behavior` tool registered (src:3078) | PASS |
+| 6 | TypeScript build | PASS — sıfır hata |
+| 7 | Jest suite | PASS — 83/83 test |
+| 8 | Validation: skill tool refs kaynakla uyumlu | PASS |
+| 9 | Version senkron (package.json + version.ts + embedded-skills) | PASS — 1.9.11 |
+| 10 | Tool count yükseldi (49 → 54) | PASS |
+
+### 13.2 Canlı Test Turu #1 — v1.9.9 → v1.9.10 Patch
+
+**Dosya:** https://www.figma.com/design/<TEST_FILE_KEY> (e-ticaret ürün detayı akışı)
+
+| # | Senaryo | Sonuç |
+|---|---------|-------|
+| T1-1 | Plugin bağlantısı (MCP Ready yeşil) | PASS |
+| T1-2 | `fmcp-intent-router` → `figma-prototype-flow` skill yönlendirmesi | PASS |
+| T1-3 | Screen envanteri (FRAME listesi + rol tahmini) | PASS |
+| T1-4 | Navigasyon haritası (button text heuristic, TR+EN) | PASS — 8 bağlantı çıkarıldı |
+| T1-5 | 5/6 bağlantı başarılı kuruldu | PARTIAL |
+| T1-6 | 1/6 bağlantı başarısız — OVERLAY action | FAIL — generic "Reaction at index 0 was invalid" |
+| T1-7 | `figma_set_flow_starting_point` "Ürün Detayı Akışı" | PASS |
+| T1-8 | `figma_get_prototype_connections({pageScope: true})` audit | PASS — toolResult envelope çalıştı |
+
+**Tespit edilen bug'lar (v1.9.10 ile çözüldü):**
+
+| Bug | Kök neden | Çözüm |
+|---|---|---|
+| `matchLayers` SMART_ANIMATE'e yanlış enjekte | Kod `if (isSmart)` branch'te matchLayers = user_value → Figma schema reddediyor | SMART_ANIMATE path'inden kaldırıldı; sadece DirectionalTransition'a opt-in |
+| `overlayCloseOnClickOutside`/`overlayBackgroundColor` yazılamıyor | `FrameNode.overlayBackgroundInteraction` ve `overlayBackground` Plugin API'de readonly | Zod schema'dan 3 param kaldırıldı; kullanıcı Figma UI'ında manuel yapıyor |
+| OVERLAY preflight yok — generic hata | Destination frame overlay değilse Figma "Reaction invalid" veriyor | `OVERLAY_FRAME_NOT_CONFIGURED` typed error + Türkçe çözüm yönergesi (Prototype tab → Advanced → Overlay) |
+
+### 13.3 Canlı Test Turu #2 — v1.9.10 → v1.9.11 Patch (aynı dosya)
+
+| # | Senaryo | Sonuç |
+|---|---------|-------|
+| T2-1 | Aynı dosyada 8 bağlantılı Ürün Detayı akışı | PASS — 8/8 bağlantı kuruldu |
+| T2-2 | Flow starting point `2:10` → "Ürün Detay Akışı" | PASS |
+| T2-3 | Audit: 8 connection + 1 FSP doğrulandı | PASS |
+| T2-4 | OVERLAY preflight: Action Sheet önceden overlay işaretli → geçti | PASS |
+| T2-5 | SMART_ANIMATE variant geçişleri (hover, press) | PASS |
+| T2-6 | BACK action'ların Present modda ters yönlü animasyon oynaması | PASS |
+| T2-7 | ON_CLICK trigger → NAVIGATE / OVERLAY / BACK / CLOSE ayrımı | PASS |
+| T2-8 | Figma Present play modu — tam akış test | PASS |
+
+**Tespit edilen bug (v1.9.11 ile çözüldü):**
+
+| Bug | Kök neden | Çözüm |
+|---|---|---|
+| İlk `SLIDE_IN` bağlantısında schema hatası | Figma `matchLayers` key'ini DirectionalTransition'da ZORUNLU istiyor. v1.9.10'da default `false` olduğunda key enjekte edilmiyordu | `matchLayers` her zaman enjekte ediliyor (değer user param'dan); SMART_ANIMATE'e hâlâ eklenmiyor |
+
+**Bulgu (düzeltme değil — dokümantasyon):**
+- `action=BACK` için verilen `transition` Figma tarafından IGNORE ediliyor — önceki NAVIGATE'in yönü otomatik ters uygulanır. Audit raporunda `transition: null` görünmesi **normal davranış**, bug değil. Description'a not eklendi.
+
+### 13.4 Bağlantı Haritası Raporu (Test Turu #2, 8/8 başarılı)
+
+| # | Kaynak | Trigger | Action | Hedef | Transition |
+|---|---|---|---|---|---|
+| 1 | Satıcı Profili Section (2:11) | ON_CLICK | NAVIGATE | Satıcı Profili | SLIDE_IN / RIGHT 300ms |
+| 2 | dots button (2:12) | ON_CLICK | **OVERLAY** | Action Sheet | DISSOLVE 200ms |
+| 3 | Tab bar - Ürün Detay (2:13) | ON_CLICK | NAVIGATE | Konum | INSTANT |
+| 4 | Tab bar - Konum (2:14) | ON_CLICK | NAVIGATE | Ürün Detay | INSTANT |
+| 5 | arrow_left (2:15) | ON_CLICK | BACK | — | Figma auto-reverse |
+| 6 | Header Konum (2:16) | ON_CLICK | BACK | — | Figma auto-reverse |
+| 7 | "Satıcı Profili" text (2:17) | ON_CLICK | NAVIGATE | Satıcı Profili | SLIDE_IN / RIGHT 300ms |
+| 8 | "Vazgeç" (2:18) | ON_CLICK | CLOSE | — | DISSOLVE 150ms |
+
+### 13.5 Sonraki İş Kalemleri (v1.9.11 canlı test → v1.9.12 hedefi)
+
+Canlı test kullanıcı raporu 3 ek bulgu tespit etti — FUTURE.md "P0 — Prototip İyileştirmeleri v2" başlığı altına eklendi:
+
+| Madde | Konu | Durum |
+|---|---|---|
+| A | `__figmaNode` serialization — bridge children/characters kesiyor | v1.9.12 hedefi |
+| B | Plugin ilk bağlantıda `fileKey: null` | v1.9.12 hedefi |
+| C | Flow starting point çakışması (önceden "Flow 1" varsa) | v1.9.12 hedefi |
+
+### 13.6 Gerçek Hata
+
+- v1.9.9 → 1 gerçek bug (OVERLAY UX) + 2 schema bug'ı (matchLayers yanlış yer, overlay readonly varsayımı) → v1.9.10 ile kapatıldı
+- v1.9.10 → 1 schema bug (matchLayers zorunlu key) → v1.9.11 ile kapatıldı
+- v1.9.11 → **0 gerçek hata**. 8/8 bağlantı + Present modda animasyon doğrulandı.
+
+### 13.7 Araç-Skill-Plugin Uyumu
+
+| Katman | Uyum |
+|---|---|
+| MCP Tool Layer (5 yeni tool) | ✅ Zod schema validation + typed errors + toolResult envelope |
+| Plugin Bridge (`setReactionsAsync`, `getMainComponentAsync`, `getReactionsAsync`) | ✅ Async API 2024+ uyumlu; fallback pattern'ler mevcut |
+| Skill Layer (`figma-prototype-flow`) | ✅ Otonom-first + heuristic + chunking + 6 skill güncellemesi |
+| Intent Router (`fmcp-intent-router`) | ✅ "prototip bağla" vb. 7 keyword → yeni skill'e yönlendirme |
+| SKILL_INDEX | ✅ 25 → 26 skill |
+| Plugin Kodu (`f-mcp-plugin/code.js`) | ✅ Sıfır değişiklik — `eval(wrappedCode)` mevcut davranışla çalışıyor |
+| CHANGELOG + Version | ✅ [1.9.9], [1.9.10], [1.9.11] entry'leri; package.json + version.ts senkron |

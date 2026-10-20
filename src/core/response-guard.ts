@@ -1,0 +1,528 @@
+/**
+ * Response Guard — Shared response size protection for MCP tools.
+ *
+ * Prevents AI context window exhaustion by truncating large responses.
+ * Used by local-plugin-only.ts to truncate large responses.
+ */
+
+export const RESPONSE_SIZE_THRESHOLDS = {
+	IDEAL_KB: 100,
+	WARNING_KB: 200,
+	CRITICAL_KB: 500,
+	MAX_KB: 1000,
+} as const;
+
+/**
+ * Plugin-aware size thresholds — significantly tighter than REST limits because
+ * Claude chat sessions cannot tolerate single 200 KB+ responses without
+ * triggering "conversation too long" errors. Used by truncatePluginResponse.
+ */
+export const PLUGIN_SIZE_THRESHOLDS = {
+	IDEAL_KB: 40,
+	WARNING_KB: 80,
+	CRITICAL_KB: 160,
+	MAX_KB: 250,
+} as const;
+
+const DEFAULT_TRUNCATE_OPTIONS = {
+	maxArrayItems: 50,
+	maxStringLength: 500,
+	maxObjectDepth: 3,
+	maxKB: 200,
+};
+
+export interface TruncateOptions {
+	maxArrayItems?: number;
+	maxStringLength?: number;
+	maxObjectDepth?: number;
+	maxKB?: number;
+}
+
+export interface TruncateResult {
+	data: unknown;
+	originalSizeKB: number;
+	truncatedSizeKB: number;
+	wasTruncated: boolean;
+	itemsRemoved: number;
+}
+
+/** Estimate token count from data (≈1 token per 4 chars of JSON). */
+export function estimateTokens(data: unknown): number {
+	const json = typeof data === "string" ? data : JSON.stringify(data);
+	return Math.ceil(json.length / 4);
+}
+
+/** Calculate KB size of data. */
+export function calculateSizeKB(data: unknown): number {
+	const json = typeof data === "string" ? data : JSON.stringify(data);
+	return json.length / 1024;
+}
+
+/** Deep truncate any JSON value to fit within size limits. */
+export function truncateResponse(
+	data: unknown,
+	opts?: TruncateOptions,
+): TruncateResult {
+	const o = { ...DEFAULT_TRUNCATE_OPTIONS, ...opts };
+	const originalJson = JSON.stringify(data);
+	const originalSizeKB = originalJson.length / 1024;
+
+	if (originalSizeKB <= o.maxKB) {
+		return {
+			data,
+			originalSizeKB,
+			truncatedSizeKB: originalSizeKB,
+			wasTruncated: false,
+			itemsRemoved: 0,
+		};
+	}
+
+	let itemsRemoved = 0;
+
+	function truncate(
+		val: unknown,
+		depth: number,
+		limits: {
+			maxArrayItems: number;
+			maxStringLength: number;
+			maxObjectDepth: number;
+		},
+	): unknown {
+		if (val === null || val === undefined) return val;
+		if (typeof val === "string") {
+			if (val.length > limits.maxStringLength) {
+				itemsRemoved++;
+				return (
+					val.slice(0, limits.maxStringLength) +
+					`... (${val.length - limits.maxStringLength} chars truncated)`
+				);
+			}
+			return val;
+		}
+		if (typeof val === "number" || typeof val === "boolean") return val;
+		if (depth >= limits.maxObjectDepth) {
+			itemsRemoved++;
+			return typeof val === "object" && val !== null
+				? Array.isArray(val)
+					? `[Array: ${val.length} items]`
+					: `[Object: ${Object.keys(val as object).length} keys]`
+				: val;
+		}
+		if (Array.isArray(val)) {
+			if (val.length > limits.maxArrayItems) {
+				const sliced = val
+					.slice(0, limits.maxArrayItems)
+					.map((v) => truncate(v, depth + 1, limits));
+				const removed = val.length - limits.maxArrayItems;
+				itemsRemoved += removed;
+				sliced.push({
+					_truncated: true,
+					_message: `${removed} more items not shown`,
+				} as unknown);
+				return sliced;
+			}
+			return val.map((v) => truncate(v, depth + 1, limits));
+		}
+		if (typeof val === "object") {
+			const obj = val as Record<string, unknown>;
+			const result: Record<string, unknown> = {};
+			for (const [key, v] of Object.entries(obj)) {
+				result[key] = truncate(v, depth + 1, limits);
+			}
+			return result;
+		}
+		return val;
+	}
+
+	const firstLimits = {
+		maxArrayItems: o.maxArrayItems,
+		maxStringLength: o.maxStringLength,
+		maxObjectDepth: o.maxObjectDepth,
+	};
+	const truncated = truncate(data, 0, firstLimits);
+	const truncatedJson = JSON.stringify(truncated);
+	const truncatedSizeKB = truncatedJson.length / 1024;
+
+	// If still too large after first pass, do aggressive truncation with halved limits
+	if (truncatedSizeKB > o.maxKB * 1.5) {
+		itemsRemoved = 0;
+		const aggressiveLimits = {
+			maxArrayItems: Math.max(5, Math.floor(o.maxArrayItems / 2)),
+			maxStringLength: Math.max(100, Math.floor(o.maxStringLength / 2)),
+			maxObjectDepth: Math.max(2, o.maxObjectDepth - 1),
+		};
+		const aggressive = truncate(data, 0, aggressiveLimits);
+		return {
+			data: aggressive,
+			originalSizeKB,
+			truncatedSizeKB: JSON.stringify(aggressive).length / 1024,
+			wasTruncated: true,
+			itemsRemoved,
+		};
+	}
+
+	return {
+		data: truncated,
+		originalSizeKB,
+		truncatedSizeKB,
+		wasTruncated: true,
+		itemsRemoved,
+	};
+}
+
+/**
+ * Endpoint-aware truncation for Figma REST API responses.
+ * Applies smarter truncation based on known endpoint patterns.
+ */
+export function truncateRestResponse(
+	endpoint: string,
+	data: unknown,
+	maxKB: number = 200,
+): TruncateResult {
+	const originalJson = JSON.stringify(data);
+	const originalSizeKB = originalJson.length / 1024;
+
+	if (originalSizeKB <= maxKB) {
+		return {
+			data,
+			originalSizeKB,
+			truncatedSizeKB: originalSizeKB,
+			wasTruncated: false,
+			itemsRemoved: 0,
+		};
+	}
+
+	const obj = data as Record<string, unknown>;
+	let itemsRemoved = 0;
+
+	// /v1/files/:key/comments — keep last 20 comments
+	if (
+		endpoint.includes("/comments") &&
+		obj.comments &&
+		Array.isArray(obj.comments)
+	) {
+		const total = obj.comments.length;
+		const kept = 20;
+		if (total > kept) {
+			itemsRemoved = total - kept;
+			const trimmed = {
+				...obj,
+				comments: obj.comments.slice(-kept),
+				_truncated: {
+					totalComments: total,
+					showing: kept,
+					message: `Son ${kept} yorum gösteriliyor (toplam ${total})`,
+				},
+			};
+			const sizeKB = JSON.stringify(trimmed).length / 1024;
+			return {
+				data: trimmed,
+				originalSizeKB,
+				truncatedSizeKB: sizeKB,
+				wasTruncated: true,
+				itemsRemoved,
+			};
+		}
+	}
+
+	// /v1/files/:key/versions — keep last 10 versions
+	if (
+		endpoint.includes("/versions") &&
+		obj.versions &&
+		Array.isArray(obj.versions)
+	) {
+		const total = obj.versions.length;
+		const kept = 10;
+		if (total > kept) {
+			itemsRemoved = total - kept;
+			const trimmed = {
+				...obj,
+				versions: obj.versions.slice(0, kept),
+				_truncated: {
+					totalVersions: total,
+					showing: kept,
+					message: `Son ${kept} versiyon gösteriliyor (toplam ${total})`,
+				},
+			};
+			const sizeKB = JSON.stringify(trimmed).length / 1024;
+			return {
+				data: trimmed,
+				originalSizeKB,
+				truncatedSizeKB: sizeKB,
+				wasTruncated: true,
+				itemsRemoved,
+			};
+		}
+	}
+
+	// /v1/files/:key — trim document children (pages)
+	if (obj.document && typeof obj.document === "object") {
+		const doc = obj.document as Record<string, unknown>;
+		if (doc.children && Array.isArray(doc.children)) {
+			const total = doc.children.length;
+			const kept = 20;
+			const trimmedChildren = doc.children
+				.slice(0, kept)
+				.map((child: unknown) => {
+					if (typeof child === "object" && child !== null) {
+						const c = child as Record<string, unknown>;
+						// Remove nested children to save space
+						const { children: _, ...rest } = c;
+						return rest;
+					}
+					return child;
+				});
+			if (total > kept) itemsRemoved = total - kept;
+			const trimmed = {
+				...obj,
+				document: { ...doc, children: trimmedChildren },
+				_truncated: {
+					totalPages: total,
+					showing: Math.min(total, kept),
+					childrenStripped: true,
+				},
+			};
+			const sizeKB = JSON.stringify(trimmed).length / 1024;
+			if (sizeKB <= maxKB * 1.5) {
+				return {
+					data: trimmed,
+					originalSizeKB,
+					truncatedSizeKB: sizeKB,
+					wasTruncated: true,
+					itemsRemoved,
+				};
+			}
+		}
+	}
+
+	// Fallback: generic truncation
+	return truncateResponse(data, {
+		maxKB,
+		maxArrayItems: 20,
+		maxStringLength: 300,
+		maxObjectDepth: 3,
+	});
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Plugin response guard (v1.8.0)
+//
+// Plugin tool responses (figma_get_design_context, figma_capture_screenshot,
+// figma_execute return values, etc.) bypass truncateRestResponse. They can
+// reach 500 KB+ on large frames, blowing Claude chat's context window. This
+// guard applies progressive pruning — children → effects → fills → minimal —
+// until the response fits under PLUGIN_SIZE_THRESHOLDS.WARNING_KB.
+// ────────────────────────────────────────────────────────────────────────────
+
+interface PluginNode {
+	id?: string;
+	name?: string;
+	type?: string;
+	children?: PluginNode[];
+	childCount?: number;
+	fills?: unknown;
+	strokes?: unknown;
+	effects?: unknown[];
+	boundVariables?: unknown;
+	absoluteBoundingBox?: unknown;
+	[k: string]: unknown;
+}
+
+/**
+ * Recursively prune a plugin node payload in-place, reducing detail at the
+ * given stage. Higher stages drop more fields:
+ *   stage 1: cap children arrays at 5 with _childrenTruncated marker
+ *   stage 2: drop effects, boundVariables
+ *   stage 3: drop fills, strokes, absoluteBoundingBox
+ *   stage 4: keep only id, name, type, children, childCount
+ */
+function pruneNodeTree(node: PluginNode, stage: number): void {
+	if (!node || typeof node !== "object") return;
+	if (Array.isArray(node.children)) {
+		for (const c of node.children) pruneNodeTree(c, stage);
+		if (stage >= 1 && node.children.length > 5) {
+			const removed = node.children.length - 5;
+			node.children = node.children.slice(0, 5);
+			(node as Record<string, unknown>)._childrenTruncated = removed;
+		}
+	}
+	if (stage >= 2) {
+		delete (node as Record<string, unknown>).effects;
+		delete (node as Record<string, unknown>).boundVariables;
+	}
+	if (stage >= 3) {
+		delete (node as Record<string, unknown>).fills;
+		delete (node as Record<string, unknown>).strokes;
+		delete (node as Record<string, unknown>).absoluteBoundingBox;
+	}
+	if (stage >= 4) {
+		const keep = new Set([
+			"id",
+			"name",
+			"type",
+			"children",
+			"childCount",
+			"_childrenTruncated",
+		]);
+		for (const k of Object.keys(node)) {
+			if (!keep.has(k)) delete (node as Record<string, unknown>)[k];
+		}
+	}
+}
+
+/**
+ * Truncate a plugin tool response so it fits within Claude chat's context
+ * window. Walks the wrapper envelope ({data: {document|node|...}}) and applies
+ * progressive node-tree pruning. Adds a _responseGuard marker when truncated.
+ *
+ * @param data Raw plugin response (any shape — envelope-aware)
+ * @param toolName MCP tool name for telemetry/logging
+ * @param opts.maxKB Override the default WARNING_KB threshold
+ */
+export function truncatePluginResponse(
+	data: unknown,
+	toolName: string,
+	opts?: { maxKB?: number },
+): TruncateResult {
+	const maxKB = opts?.maxKB ?? PLUGIN_SIZE_THRESHOLDS.WARNING_KB;
+	const originalSizeKB = calculateSizeKB(data);
+	if (originalSizeKB <= maxKB) {
+		return {
+			data,
+			originalSizeKB,
+			truncatedSizeKB: originalSizeKB,
+			wasTruncated: false,
+			itemsRemoved: 0,
+		};
+	}
+
+	// Deep clone so we don't mutate the caller's data
+	let clone: unknown;
+	try {
+		clone = JSON.parse(JSON.stringify(data));
+	} catch {
+		// Fallback to generic truncation if clone fails (circular refs, BigInt, etc.)
+		return truncateResponse(data, {
+			maxKB,
+			maxArrayItems: 10,
+			maxStringLength: 200,
+			maxObjectDepth: 3,
+		});
+	}
+
+	// Resolve the root node(s) — envelope-aware. Only real node trees are pruned:
+	// pruning a non-node root (e.g. {success, contract} or {image:{base64}}) at
+	// stage 4 would delete every field and return {} (v1.9.16 fix).
+	const cloneObj = clone as Record<string, unknown>;
+	const dataField = cloneObj.data as Record<string, unknown> | undefined;
+	const candidates: PluginNode[] = [];
+	if (isNodeLike(dataField?.document))
+		candidates.push(dataField?.document as PluginNode);
+	if (isNodeLike(dataField?.node))
+		candidates.push(dataField?.node as PluginNode);
+	if (isNodeLike(cloneObj.document))
+		candidates.push(cloneObj.document as PluginNode);
+	if (isNodeLike(cloneObj.node)) candidates.push(cloneObj.node as PluginNode);
+	if (
+		candidates.length === 0 &&
+		isNodeLike(clone) &&
+		Array.isArray(cloneObj.children)
+	) {
+		candidates.push(clone as PluginNode);
+	}
+
+	// Try progressive node-tree stages
+	for (let stage = 1; candidates.length > 0 && stage <= 4; stage++) {
+		for (const root of candidates) pruneNodeTree(root, stage);
+		const sizeKB = calculateSizeKB(clone);
+		if (sizeKB <= maxKB) {
+			cloneObj._responseGuard = {
+				originalSizeKB: Math.round(originalSizeKB * 10) / 10,
+				truncatedSizeKB: Math.round(sizeKB * 10) / 10,
+				strategy: `plugin-prune-stage-${stage}`,
+				tool: toolName,
+			};
+			return {
+				data: clone,
+				originalSizeKB,
+				truncatedSizeKB: sizeKB,
+				wasTruncated: true,
+				itemsRemoved: 0,
+			};
+		}
+	}
+
+	// No node tree (or still too large): progressively tighter generic truncation
+	const generic = fitGeneric(clone, maxKB);
+	const strategy =
+		candidates.length > 0 ? "plugin-prune-fallback-generic" : "plugin-generic";
+	if (
+		generic.data &&
+		typeof generic.data === "object" &&
+		!Array.isArray(generic.data)
+	) {
+		(generic.data as Record<string, unknown>)._responseGuard = {
+			originalSizeKB: Math.round(originalSizeKB * 10) / 10,
+			truncatedSizeKB: Math.round(generic.truncatedSizeKB * 10) / 10,
+			strategy,
+			tool: toolName,
+		};
+	}
+	return { ...generic, originalSizeKB };
+}
+
+/** True for objects that look like a Figma node (have a string `type`). */
+function isNodeLike(v: unknown): boolean {
+	return (
+		!!v &&
+		typeof v === "object" &&
+		!Array.isArray(v) &&
+		typeof (v as Record<string, unknown>).type === "string"
+	);
+}
+
+/** Generic truncation with progressively tighter limits until the payload fits maxKB. */
+function fitGeneric(data: unknown, maxKB: number): TruncateResult {
+	const presets: TruncateOptions[] = [
+		{ maxArrayItems: 50, maxStringLength: 2000, maxObjectDepth: 8 },
+		{ maxArrayItems: 20, maxStringLength: 500, maxObjectDepth: 6 },
+		{ maxArrayItems: 10, maxStringLength: 200, maxObjectDepth: 4 },
+		{ maxArrayItems: 5, maxStringLength: 100, maxObjectDepth: 3 },
+	];
+	let last: TruncateResult | undefined;
+	for (const p of presets) {
+		last = truncateResponse(data, { ...p, maxKB });
+		if (last.truncatedSizeKB <= maxKB) return last;
+	}
+	return last as TruncateResult;
+}
+
+/**
+ * Guard a plugin payload for a tool response. Always leaves a truncation marker
+ * when data was cut (full _responseGuard when debug, compact one otherwise) so
+ * the caller never mistakes a truncated payload for the complete one.
+ */
+export function guardPluginPayload(
+	data: unknown,
+	toolName: string,
+	debug = false,
+): unknown {
+	const result = truncatePluginResponse(data, toolName);
+	const payload = result.data;
+	if (
+		!result.wasTruncated ||
+		debug ||
+		!payload ||
+		typeof payload !== "object" ||
+		Array.isArray(payload)
+	) {
+		return payload;
+	}
+	const obj = { ...(payload as Record<string, unknown>) };
+	delete obj._responseGuard;
+	obj._truncated = {
+		originalSizeKB: Math.round(result.originalSizeKB),
+		hint: "Yanıt boyut sınırı (80 KB) nedeniyle kırpıldı. Daha dar kapsam (nodeId, depth, verbosity=summary) ile tekrar iste.",
+	};
+	return obj;
+}

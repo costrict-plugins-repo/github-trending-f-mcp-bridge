@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "figma-mcp-bridge": {
+      "command": "node",
+      "args": ["dist/local-plugin-only.js"]
+    }
+  }
+}
